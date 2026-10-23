@@ -24,6 +24,7 @@ export class Match {
     this.onEnd = onEnd;
     this.onRound = onRound;
     this.time = 0;
+    this.playTime = 0; // seconds of play in this match, shown at the top
     this.acc = 0;
     this.paused = false;
     this.over = false;
@@ -78,6 +79,7 @@ export class Match {
       return;
     }
     this.frame++;
+    this.playTime += DT;
     this.boards.forEach((b, i) => {
       const input = this.cpus[i]?.input() ?? this.pads[i]?.frame() ?? {};
       b.step(input);
@@ -104,6 +106,7 @@ export class Match {
       case 'move': if (human) s?.sfx('move', pan, 0.5); break;
       case 'turn': if (human) s?.sfx('turn', pan, 0.6); break;
       case 'land': s?.sfx('land', pan, 0.45); break;
+      case 'hardDrop': s?.sfx('land', pan, 0.8); break;
       case 'pop':
         s?.chain(e.chain, pan);
         s?.chainVoice(this.players[i].char, e.chain, pan);

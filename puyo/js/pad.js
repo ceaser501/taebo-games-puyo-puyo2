@@ -5,10 +5,10 @@ const REPEAT = 2;
 
 export const KEYMAPS = {
   // Against the computer or online: the arrows and Z / X.
-  solo: { left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], down: ['ArrowDown', 'KeyS'], cw: ['KeyX', 'ArrowUp', 'KeyW'], ccw: ['KeyZ'] },
+  solo: { left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], down: ['ArrowDown', 'KeyS'], cw: ['KeyX', 'ArrowUp', 'KeyW'], ccw: ['KeyZ'], hard: ['Space'] },
   // Two on one keyboard.
-  left: { left: ['KeyA'], right: ['KeyD'], down: ['KeyS'], cw: ['KeyW', 'KeyG'], ccw: ['KeyF'] },
-  right: { left: ['ArrowLeft'], right: ['ArrowRight'], down: ['ArrowDown'], cw: ['ArrowUp', 'Period'], ccw: ['Comma'] },
+  left: { left: ['KeyA'], right: ['KeyD'], down: ['KeyS'], cw: ['KeyW', 'KeyG'], ccw: ['KeyF'], hard: ['KeyE'] },
+  right: { left: ['ArrowLeft'], right: ['ArrowRight'], down: ['ArrowDown'], cw: ['ArrowUp', 'Period'], ccw: ['Comma'], hard: ['Slash'] },
 };
 
 export class Pad {
@@ -18,6 +18,7 @@ export class Pad {
     this.held = { left: false, right: false, down: false };
     this.queue = []; // turns pressed since the last frame
     this.moves = []; // single steps from swipes
+    this.hard = false; // hard drop pressed since the last frame
     this.dir = 0;
     this.hold = 0;
     this.fresh = false;
@@ -36,6 +37,10 @@ export class Pad {
       if (down) this.queue.push(action === 'cw' ? 1 : -1);
       return;
     }
+    if (action === 'hard') {
+      if (down) this.hard = true;
+      return;
+    }
     if (this.held[action] === down) return;
     this.held[action] = down;
     if (down && (action === 'left' || action === 'right')) {
@@ -52,6 +57,7 @@ export class Pad {
     this.held = { left: false, right: false, down: false };
     this.queue = [];
     this.moves = [];
+    this.hard = false;
     this.dir = 0;
   }
 
@@ -64,6 +70,9 @@ export class Pad {
     }
     if (this.moves.length) move = this.moves.shift();
     const turn = this.queue.shift() || 0;
-    return { move, turn, soft: this.held.down };
+    // A hard drop waits for queued turns and steps, so a quick swipe-and-flick lands where meant.
+    const hard = this.hard && !this.queue.length && !this.moves.length;
+    if (hard) this.hard = false;
+    return { move, turn, soft: this.held.down, hard };
   }
 }

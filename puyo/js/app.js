@@ -92,6 +92,7 @@ async function init() {
   }
   pictures = new Pictures(manifest);
   renderer = new Renderer(canvas, pictures, manifest);
+  renderer.onLayout = placeControls;
   const me = Number(store.get('puyo-me', '0'));
   pick.me = ROSTER.includes(me) ? me : 0;
   const cpu = store.get('puyo-cpu', 'random');
@@ -216,8 +217,31 @@ document.body.classList.toggle('touch', touchDevice);
 function setTouch(on) {
   $('touch').hidden = !on;
   if (!renderer) return;
-  renderer.touchReserve = on ? Math.min(150, innerHeight * 0.28) : 0;
+  renderer.touch = on;
   renderer.resize();
+}
+
+// The renderer says where the game ends; the buttons fill the space below it (upright) or the
+// margins beside it (on its side), as big as fits but no bigger than a thumb needs.
+function placeControls({ tall, top, side }) {
+  const box = $('touch');
+  box.classList.toggle('sides', !tall);
+  const gap = 10;
+  let width, height;
+  if (tall) {
+    box.style.setProperty('--top', `${Math.round(top)}px`);
+    width = (innerWidth - 24 - gap * 2 - 24) / 4;
+    height = innerHeight - top - 24; // both rows
+  } else {
+    box.style.removeProperty('--top');
+    width = (side - 24 - gap) / 2;
+    height = Math.min(innerHeight - 40, width * 2.6);
+  }
+  // Bottom row (move / turn) a little taller than the top one (drop).
+  const rows = Math.max(100, height - gap);
+  box.style.setProperty('--btn', `${Math.max(44, Math.floor(width))}px`);
+  box.style.setProperty('--row1', `${Math.floor(Math.min(rows * 0.42, 110))}px`);
+  box.style.setProperty('--row2', `${Math.floor(Math.min(rows * 0.58, 150))}px`);
 }
 const myPad = () => pads[net ? lobby.me : 0];
 for (const button of document.querySelectorAll('#touch [data-act]')) {
@@ -251,7 +275,8 @@ let gesture = null;
 canvas.addEventListener('pointerdown', (e) => {
   if (!match || !myPad() || !$('pause').hidden || !$('end').hidden) return;
   e.preventDefault();
-  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t0: performance.now(), moved: false, soft: false };
+  const t = performance.now();
+  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t0: t, moved: false, soft: false, trail: [[t, e.clientY]] };
 });
 canvas.addEventListener('pointermove', (e) => {
   const g = gesture, pad = myPad();
@@ -263,8 +288,13 @@ canvas.addEventListener('pointermove', (e) => {
     g.x += dir * step;
     g.moved = true;
   }
+  const now = performance.now();
+  g.trail.push([now, e.clientY]);
+  while (g.trail.length > 2 && now - g.trail[0][0] > 120) g.trail.shift();
   const dy = e.clientY - g.y0, dx = Math.abs(e.clientX - g.x0);
-  if (!g.soft && dy > step * 1.2 && dy > dx) { g.soft = true; g.moved = true; pad.press('down', true); }
+  // A slow pull down drops fast while held; a quick flick is left for the hard drop on release.
+  if (!g.soft && dy > step * 1.2 && dy > dx && performance.now() - g.t0 > 180) { g.soft = true; g.moved = true; pad.press('down', true); }
+  else if (!g.soft && dy > step * 1.2 && dy > dx) g.moved = true;
   else if (g.soft && dy < step * 0.6) { g.soft = false; pad.press('down', false); }
 });
 const endGesture = (e) => {
@@ -274,7 +304,13 @@ const endGesture = (e) => {
   const pad = myPad();
   if (!pad) return;
   if (g.soft) pad.press('down', false);
-  if (!g.moved && performance.now() - g.t0 < 350) pad.press(e.clientX > innerWidth / 2 ? 'cw' : 'ccw', true);
+  const now = performance.now(), dt = now - g.t0, dy = e.clientY - g.y0;
+  // A quick flick down at the end (speed over the last tenth of a second) drops the pair to
+  // the bottom at once, also after a slow pull.
+  const [t1, y1] = g.trail[0];
+  const speed = (e.clientY - y1) / Math.max(1, now - t1);
+  if (dy > renderer.cellPx * 1.5 && speed > 0.7 && dy > Math.abs(e.clientX - g.x0)) pad.press('hard', true);
+  else if (!g.moved && dt < 350) pad.press(e.clientX > innerWidth / 2 ? 'cw' : 'ccw', true);
 };
 canvas.addEventListener('pointerup', endGesture);
 canvas.addEventListener('pointercancel', (e) => { if (gesture?.soft) myPad()?.press('down', false); gesture = null; });

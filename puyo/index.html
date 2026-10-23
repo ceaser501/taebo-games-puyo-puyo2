@@ -20,13 +20,15 @@
 <body>
   <canvas id="game"></canvas>
 
+  <!-- Two thumbs: moving on the left, turning and dropping on the right. -->
   <div id="touch" hidden>
-    <div class="pad">
+    <div class="cluster">
+      <button type="button" class="wide" data-act="down" aria-label="빨리 내리기">▼<small>빨리</small></button>
       <button type="button" data-act="left" aria-label="왼쪽">◀</button>
-      <button type="button" data-act="down" aria-label="빨리 내리기">▼</button>
       <button type="button" data-act="right" aria-label="오른쪽">▶</button>
     </div>
-    <div class="pad">
+    <div class="cluster">
+      <button type="button" class="wide hard" data-act="hard" aria-label="바로 내리기">⤓<small>바로 내리기</small></button>
       <button type="button" data-act="ccw" aria-label="왼쪽으로 돌리기">⟲</button>
       <button type="button" data-act="cw" aria-label="오른쪽으로 돌리기">⟳</button>
     </div>
@@ -99,10 +101,11 @@
     <dl class="keys">
       <dt>← →</dt><dd>옮기기 (누르고 있으면 계속)</dd>
       <dt>↓</dt><dd>빨리 내리기</dd>
+      <dt>Space</dt><dd>바로 내리기 (바닥까지 한 번에)</dd>
       <dt>X / ↑</dt><dd>오른쪽으로 돌리기</dd>
       <dt>Z</dt><dd>왼쪽으로 돌리기 (양옆이 막혔을 때 두 번 누르면 위아래 뒤집기)</dd>
       <dt>Esc</dt><dd>메뉴</dd>
-      <dt>2인</dt><dd>왼쪽 A D S + F G · 오른쪽 ← → ↓ + , .</dd>
+      <dt>2인</dt><dd>왼쪽 A D S + F G, 바로 내리기 E · 오른쪽 ← → ↓ + , ., 바로 내리기 /</dd>
     </dl>
     <p id="build"></p>
   </div>

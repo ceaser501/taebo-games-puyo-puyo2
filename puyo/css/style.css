@@ -520,40 +520,72 @@ body.touch .keys {
 
 /* ---- touch controls ---- */
 
+/* Upright: under the game, filling the rest of the screen. On its side: in the margins.
+   --btn (the button size) and --top (where the game ends) are set from app.js. */
 #touch {
+  --btn: 72px;
+  --gap: 10px;
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
+  top: var(--top, 60%);
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  padding: 0 calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+  align-items: center;
+  padding: 0 calc(12px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(12px + env(safe-area-inset-left));
   pointer-events: none;
   z-index: 1;
 }
 
-#touch .pad {
-  display: flex;
-  gap: 10px;
+#touch.sides {
+  top: 0;
+  padding-bottom: 0;
+}
+
+#touch .cluster {
+  display: grid;
+  grid-template-columns: repeat(2, var(--btn));
+  grid-template-rows: var(--row1, 52px) var(--row2, 72px);
+  gap: var(--gap);
   pointer-events: auto;
 }
 
-#touch button {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
+#touch .cluster button {
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(20, 16, 40, 0.55);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #fff;
-  font-size: 24px;
+  font-size: calc(var(--btn) * 0.36);
+  line-height: 1;
   touch-action: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
-#touch button.held {
-  background: rgba(255, 207, 58, 0.45);
+#touch .cluster button.wide {
+  grid-column: span 2;
+  font-size: calc(var(--btn) * 0.3);
+}
+
+#touch .cluster button small {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+#touch .cluster button.hard {
+  background: rgba(255, 170, 30, 0.28);
+  border-color: rgba(255, 207, 58, 0.6);
+}
+
+#touch .cluster button.held {
+  background: rgba(255, 207, 58, 0.5);
   border-color: var(--accent);
 }
 
@@ -563,13 +595,10 @@ body.touch .keys {
   right: calc(10px + env(safe-area-inset-right));
   width: 40px;
   height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 16, 40, 0.6);
+  color: #fff;
   font-size: 14px;
   pointer-events: auto;
-}
-
-@media (max-height: 420px) {
-  #touch button {
-    width: 54px;
-    height: 54px;
-  }
 }

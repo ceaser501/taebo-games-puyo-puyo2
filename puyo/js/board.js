@@ -61,6 +61,7 @@ export class Board {
     this.blocked = 0; // frame of the last turn that failed, for the quick turn
     this.frame = 0;
     this.attack = 0; // nuisance this board sent during the current chain (for the CPU)
+    this.maxChain = 0; // best chain this round
   }
 
   at(x, y) { return x < 0 || x >= W || y >= H ? 255 : y < 0 ? 0 : this.grid[y * W + x]; }
@@ -97,7 +98,6 @@ export class Board {
     this.emit('spawn');
   }
 
-  // input: { move: -1 | 0 | 1, turn: -1 | 0 | 1, soft: bool } for this frame.
   step(input = {}) {
     this.frame++;
     this.events.length = 0;
@@ -115,13 +115,24 @@ export class Board {
     }
   }
 
-  control({ move = 0, turn = 0, soft = false }) {
+  // input: { move: -1 | 0 | 1, turn: -1 | 0 | 1, soft: bool, hard: bool } for this frame.
+  control({ move = 0, turn = 0, soft = false, hard = false }) {
     const p = this.piece;
     if (turn) this.turn(turn);
     if (move && this.fits(p.x + move, p.y, p.r)) {
       p.x += move;
       this.emit('move');
       if (p.lock && p.resets < LOCK_RESETS) { p.lock = 0; p.resets++; }
+    }
+    // Hard drop: straight to the bottom and locked (a point per row, like dropping fast).
+    if (hard) {
+      let y = Math.floor(p.y);
+      while (this.fits(p.x, y + 1, p.r)) y++;
+      this.score += Math.max(0, y - Math.floor(p.y));
+      p.y = y;
+      this.emit('hardDrop');
+      this.lock();
+      return;
     }
     const v = soft ? Math.max(0.5, this.gravity) : this.gravity;
     const ny = p.y + v;
@@ -264,6 +275,7 @@ export class Board {
       return;
     }
     this.chain++;
+    this.maxChain = Math.max(this.maxChain, this.chain);
     const cleared = groups.reduce((s, g) => s + g.cells.length, 0);
     const colours = new Set(groups.map((g) => g.c)).size;
     const bonus = chainPower(this.chain) + COLOUR_BONUS[colours] + groups.reduce((s, g) => s + groupBonus(g.cells.length), 0);
@@ -382,6 +394,7 @@ export class Board {
       q: this.warning,
       ch: this.chainShow > 0 ? [this.lastChain, this.chainShow, this.chainAt.x, this.chainAt.y] : null,
       ac: this.allClearShow,
+      mc: this.maxChain,
       d: this.dead,
     };
   }
@@ -431,6 +444,7 @@ export class Mirror {
     this.warning = s.q;
     if (s.ch) { [this.lastChain, this.chainShow] = s.ch; this.chainAt = { x: s.ch[2], y: s.ch[3] }; } else this.chainShow = 0;
     this.allClearShow = s.ac;
+    this.maxChain = s.mc ?? 0;
     this.dead = s.d;
   }
 

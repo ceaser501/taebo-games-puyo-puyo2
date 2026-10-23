@@ -25,16 +25,19 @@ function layout(tall, me) {
       figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
     };
   }
+  // Upright: the status bar on top (time, scores, chains), my field, and NEXT and the other
+  // field in the column beside it. The touch buttons take the rest of the screen below.
   const o = 1 - me;
-  const L = { screen: { w: 360, h: 572 }, fields: [], next: [], face: [], figure: [null, null] };
-  L.fields[me] = { x: 14, y: 36, s: 1 };
-  L.fields[o] = { x: 228, y: 200, s: 0.6 };
-  L.next[me] = { x: 242, y: 36 };
+  const L = { screen: { w: 360, h: 490 }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
+  L.fields[me] = { x: 20, y: 84, s: 1 };
+  L.fields[o] = { x: 246, y: 252, s: 0.54 };
+  L.next[me] = { x: 242, y: 60 };
   L.next[o] = null;
-  L.face[me] = { x: 14, y: 480 };
-  L.face[o] = { x: 266, y: 480 };
   return L;
 }
+
+const MIN_CONTROLS = 190; // CSS pixels kept for the touch buttons on an upright phone
+const clock = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
 const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", system-ui, sans-serif';
 
@@ -109,14 +112,24 @@ export class Renderer {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    // Fit the screen, leaving room for the touch buttons below.
-    const reserve = this.touchReserve || 0;
-    this.tall = h - reserve > w * 1.15;
+    // Upright, the game sits at the top at full width and the touch buttons get everything
+    // below it (at least MIN_CONTROLS); on its side, the 4:3 screen is centred and the buttons
+    // go in the margins left and right.
+    this.tall = h > w * 1.15;
     this.layout = layout(this.tall, this.me);
     const screen = this.layout.screen;
-    this.scale = Math.min(w / screen.w, (h - reserve) / screen.h);
-    this.ox = (w - screen.w * this.scale) / 2;
-    this.oy = Math.max(0, (h - reserve - screen.h * this.scale) / 2);
+    if (this.tall) {
+      const room = this.touch ? MIN_CONTROLS : 0;
+      this.scale = Math.min(w / screen.w, (h - room) / screen.h);
+      this.ox = (w - screen.w * this.scale) / 2;
+      this.oy = this.touch ? 0 : (h - screen.h * this.scale) / 2;
+    } else {
+      this.scale = Math.min(w / screen.w, h / screen.h);
+      this.ox = (w - screen.w * this.scale) / 2;
+      this.oy = (h - screen.h * this.scale) / 2;
+    }
+    this.controls = { tall: this.tall, top: this.oy + screen.h * this.scale, side: this.ox };
+    this.onLayout?.(this.controls);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
     this.cellPx = CELL * this.scale * this.layout.fields[this.me].s; // CSS pixels per cell of my field
@@ -331,6 +344,7 @@ export class Renderer {
       ctx.restore();
     });
     this.drawCentre(ctx, match);
+    this.drawHud(ctx, match);
     this.drawBanner(ctx, match);
   }
 
@@ -478,7 +492,18 @@ export class Renderer {
     // Nuisance about to fall, as icons above the field.
     this.warnings(ctx, b.warning ?? b.pending ?? 0, fx, fy - 4);
 
-    // Score.
+    // Score (upright, it is in the status bar instead).
+    if (this.layout.hud) return;
+    if (this.classic && b.maxChain > 1) {
+      ctx.font = `800 10px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.strokeText(`최대 ${b.maxChain}연쇄`, fx + 2, fy + FIELD_H + 17);
+      ctx.fillStyle = '#ffd84a';
+      ctx.fillText(`최대 ${b.maxChain}연쇄`, fx + 2, fy + FIELD_H + 17);
+    }
     if (this.classic) {
       this.glyphs(ctx, String(b.score).padStart(8, ' '), fx + FIELD_W, fy + FIELD_H + 8, 'white', 'right');
       return;
@@ -593,7 +618,7 @@ export class Renderer {
         ctx.restore();
         this.drawName(ctx, i, i === 0 ? 272 : 368, 418, match);
       } else {
-        this.drawFace(ctx, b, i, L.face[i], match);
+        if (L.face[i]) this.drawFace(ctx, b, i, L.face[i], match);
         if (L.figure[i]) this.drawFigure(ctx, b, i, L.figure[i], match);
       }
     });
@@ -690,6 +715,75 @@ export class Renderer {
       ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
       ctx.restore();
     }
+  }
+
+  // ---- status bar ------------------------------------------------------------------------
+
+  // Play time; upright also both players' score, chain and best chain, and the rounds won.
+  drawHud(ctx, match) {
+    const L = this.layout;
+    const time = clock(match.playTime ?? 0);
+    if (!L.hud) {
+      // Wide: the time over the top border, in the middle.
+      ctx.fillStyle = 'rgba(6,8,20,0.75)';
+      roundRect(ctx, 276, 4, 88, 24, 12);
+      ctx.fill();
+      this.hudText(ctx, time, 320, 16, 16, 'center', '#fff');
+      return;
+    }
+    const right = L.screen.w - 52; // the pause button sits beyond this
+    ctx.fillStyle = 'rgba(6,8,20,0.8)';
+    roundRect(ctx, 4, 4, right - 4, 48, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const mid = (4 + right) / 2;
+    this.hudText(ctx, time, mid, 20, 18, 'center', '#fff');
+    // Rounds won under the time: mine on the left, theirs on the right.
+    const me = this.me, other = 1 - me;
+    for (const [i, dir] of [[me, -1], [other, 1]]) {
+      const p = match.players[i];
+      for (let k = 0; k < match.toWin; k++) {
+        ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.22)';
+        star(ctx, mid + dir * (10 + k * 11), 40, 4.5, 2);
+        ctx.fill();
+      }
+    }
+    this.hudSide(ctx, match, me, 12, 'left');
+    this.hudSide(ctx, match, other, right - 8, 'right');
+  }
+
+  // One player's corner of the status bar: name and chains on top, score below.
+  hudSide(ctx, match, i, x, align) {
+    const b = match.boards[i], p = match.players[i];
+    const now = b.chainShow > 0 ? b.lastChain : 0;
+    ctx.font = `800 10px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = align;
+    ctx.fillStyle = PLAYER_COLOURS[i];
+    const name = p.name.length > 5 ? `${p.name.slice(0, 5)}…` : p.name;
+    ctx.fillText(name, x, 15);
+    const nameW = ctx.measureText(name).width;
+    const chain = now ? `${now}연쇄!` : b.maxChain ? `최대 ${b.maxChain}` : '';
+    if (chain) {
+      ctx.fillStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.6)';
+      ctx.fillText(chain, align === 'left' ? x + nameW + 6 : x - nameW - 6, 15);
+    }
+    this.hudText(ctx, String(b.score), x, 35, 15, align, '#fff');
+  }
+
+  // Numbers and times in the status bar: the original white font, or plain text when modern.
+  hudText(ctx, text, x, y, size, align, colour) {
+    if (this.classic && this.ry) {
+      this.glyphs(ctx, text, x, y - size / 2, 'white', align, size / 16);
+      return;
+    }
+    ctx.font = `800 ${size}px ${FONT}`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = colour;
+    ctx.fillText(text, x, y + 1);
   }
 
   // READY / GO.
