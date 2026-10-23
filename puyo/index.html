@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="뿌요뿌요 2">
+  <title>Puyo Puyo 2</title>
+  <link rel="stylesheet" href="css/style.css">
+  <meta name="description" content="뿌요뿌요 투 스타일 대전 퍼즐 게임">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#0b0d1f">
+</head>
+
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="touch" hidden>
+    <div class="pad">
+      <button type="button" data-act="left" aria-label="왼쪽">◀</button>
+      <button type="button" data-act="down" aria-label="빨리 내리기">▼</button>
+      <button type="button" data-act="right" aria-label="오른쪽">▶</button>
+    </div>
+    <div class="pad">
+      <button type="button" data-act="ccw" aria-label="왼쪽으로 돌리기">⟲</button>
+      <button type="button" data-act="cw" aria-label="오른쪽으로 돌리기">⟳</button>
+    </div>
+    <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
+  </div>
+
+  <div id="kakao" class="panel" hidden>
+    <h1>브라우저로 열어 주세요</h1>
+    <p>카카오톡 안에서는 위아래 메뉴 때문에 화면이 좁아요. Safari나 Chrome에서 열면 전체화면으로 할 수 있어요.</p>
+    <button type="button" id="kakao-open" class="primary">브라우저로 열기</button>
+    <button type="button" id="kakao-stay">여기서 그냥 하기</button>
+  </div>
+
+  <div id="menu" class="panel wide">
+    <header class="title">
+      <span class="logo">뿌요뿌요<b>2</b></span>
+      <span class="logo-sub">PUYO PUYO TSU</span>
+    </header>
+
+    <div class="seg" id="pick-who" role="tablist">
+      <button type="button" data-who="me" class="on">내 캐릭터</button>
+      <button type="button" data-who="cpu">상대 캐릭터</button>
+    </div>
+    <div id="roster"></div>
+    <p id="roster-note" class="sub"></p>
+
+    <div class="menu-row">
+      <label>내 이름 <input id="player-name" type="text" maxlength="8" placeholder="나" autocomplete="nickname"></label>
+      <label>상대
+        <select id="opponent">
+          <option value="easy">컴퓨터 (쉬움)</option>
+          <option value="normal" selected>컴퓨터 (보통)</option>
+          <option value="hard">컴퓨터 (어려움)</option>
+          <option value="">한 키보드 2인</option>
+        </select>
+      </label>
+      <label>승부
+        <select id="rounds">
+          <option value="1">1판</option>
+          <option value="2" selected>2선승</option>
+          <option value="3">3선승</option>
+        </select>
+      </label>
+      <label>그래픽
+        <select id="skin">
+          <option value="modern" selected>깔끔하게 (모던)</option>
+          <option value="classic">원작 그대로</option>
+        </select>
+      </label>
+    </div>
+    <button id="start" class="primary" disabled>불러오는 중…</button>
+    <p id="notice"></p>
+
+    <section id="online">
+      <h2>친구와 온라인 대전</h2>
+      <p class="sub">위에서 고른 내 캐릭터로 1:1. 방장이 왼쪽, 친구가 오른쪽이에요. 판 수와 그래픽은 각자 고른 대로예요(판 수는 방장 기준).</p>
+      <div class="online-row">
+        <button id="host" type="button">방 만들기</button>
+        <input id="code" type="text" inputmode="numeric" maxlength="5" placeholder="방 코드" autocomplete="off" spellcheck="false">
+        <button id="join" type="button">참가</button>
+      </div>
+      <p id="net-status"></p>
+    </section>
+
+    <div class="menu-row">
+      <button type="button" id="menu-full" hidden>전체화면으로 하기</button>
+      <button type="button" id="menu-music">배경음악 켜짐 ♪</button>
+    </div>
+    <p id="ios-help" hidden>아이폰은 Safari 아래쪽 <b>공유</b> 버튼 → <b>홈 화면에 추가</b>로 저장한 뒤 홈 화면 아이콘으로 열면 전체화면으로 할 수 있어요.</p>
+    <dl class="keys">
+      <dt>← →</dt><dd>옮기기 (누르고 있으면 계속)</dd>
+      <dt>↓</dt><dd>빨리 내리기</dd>
+      <dt>X / ↑</dt><dd>오른쪽으로 돌리기</dd>
+      <dt>Z</dt><dd>왼쪽으로 돌리기 (양옆이 막혔을 때 두 번 누르면 위아래 뒤집기)</dd>
+      <dt>Esc</dt><dd>메뉴</dd>
+      <dt>2인</dt><dd>왼쪽 A D S + F G · 오른쪽 ← → ↓ + , .</dd>
+    </dl>
+    <p id="build"></p>
+  </div>
+
+  <div id="lobby" class="panel" hidden>
+    <h1>대기실</h1>
+    <div id="lobby-code-box">
+      <span>방 코드</span>
+      <strong id="lobby-code"></strong>
+      <button id="copy-code" type="button">복사</button>
+    </div>
+    <ul id="players">
+      <li id="slot-host" class="joined"><i class="dot red"></i><span></span><em>방장</em></li>
+      <li id="slot-guest" class="waiting"><i class="dot blue"></i><span></span><em></em></li>
+    </ul>
+    <p id="lobby-status"></p>
+    <div class="lobby-actions">
+      <button id="lobby-start" type="button" class="primary" disabled>게임 시작</button>
+      <button id="lobby-leave" type="button">나가기</button>
+    </div>
+  </div>
+
+  <div id="net-banner" hidden></div>
+
+  <div id="pause" class="panel" hidden>
+    <h1>메뉴</h1>
+    <p id="pause-note"></p>
+    <button type="button" id="resume" class="primary">계속하기</button>
+    <button type="button" id="pause-full" hidden>전체화면</button>
+    <button type="button" id="pause-music">배경음악 켜짐 ♪</button>
+    <button type="button" id="quit">게임 나가기</button>
+  </div>
+
+  <div id="end" class="panel" hidden>
+    <h1 id="end-title"></h1>
+    <p id="end-note"></p>
+    <button id="again" class="primary">다시 하기</button>
+    <button id="to-lobby" hidden>대기실로</button>
+    <button id="to-menu">메뉴로</button>
+  </div>
+
+  <div id="sfx" class="panel wide" hidden>
+    <h1>소리 듣기</h1>
+    <p>번호를 눌러 들어 보세요. 어떤 소리가 무엇인지 알려 주면 게임에 맞춰 넣을게요.</p>
+    <div id="sfx-list"></div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,14 @@
+{
+  "short_name": "뿌요뿌요 2",
+  "name": "Puyo Puyo 2",
+  "icons": [{
+    "src": "icon.png",
+    "type": "image/png",
+    "sizes": "192x192"
+  }],
+  "start_url": "/puyo/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0d1f",
+  "theme_color": "#0b0d1f"
+}

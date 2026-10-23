@@ -1,0 +1,689 @@
+// Draws a match. Everything is laid out on the original 640x480 screen (fields of 6x12 cells of
+// 32 px at (32, 32) and (416, 32)) and scaled to the window at full device resolution, so lines
+// and puyos stay smooth at any size.
+//
+// Two looks: 'modern' draws the puyos as glossy vector blobs on glass panels over a soft-focus
+// stage; 'classic' uses the original frame and puyo pictures (the 4x Scale2x copies, drawn
+// smoothed). Text, warnings and effects are the same for both.
+import { W, H, ROT, GARBAGE, DEATH_X } from './board.js';
+
+export const SCREEN = { w: 640, h: 480 };
+export const CELL = 32;
+export const FIELDS = [{ x: 32, y: 32 }, { x: 416, y: 32 }];
+const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
+
+// Where things go. Fields are drawn at FIELDS and moved/scaled to `fields`. 'wide' is the
+// original screen; 'tall' (phones held upright) gives the player's own field the full width
+// and shows the other one small beside it.
+function layout(tall, me) {
+  if (!tall) {
+    return {
+      screen: SCREEN,
+      fields: [{ x: 32, y: 32, s: 1 }, { x: 416, y: 32, s: 1 }],
+      next: [{ x: 232, y: 32 }, { x: 328, y: 32 }],
+      face: [{ x: 232, y: 172 }, { x: 328, y: 172 }],
+      figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
+    };
+  }
+  const o = 1 - me;
+  const L = { screen: { w: 360, h: 572 }, fields: [], next: [], face: [], figure: [null, null] };
+  L.fields[me] = { x: 14, y: 36, s: 1 };
+  L.fields[o] = { x: 228, y: 200, s: 0.6 };
+  L.next[me] = { x: 242, y: 36 };
+  L.next[o] = null;
+  L.face[me] = { x: 14, y: 480 };
+  L.face[o] = { x: 266, y: 480 };
+  return L;
+}
+
+const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", system-ui, sans-serif';
+
+// Body colours: [light, base, dark].
+const COLOURS = {
+  1: ['#ffb3bf', '#ff3d5a', '#a3102a'],
+  2: ['#b6f7c6', '#2fd16a', '#0d7f37'],
+  3: ['#b5d6ff', '#3d8bff', '#1648b0'],
+  4: ['#fff3a8', '#ffc61f', '#c27f00'],
+  5: ['#e6c2ff', '#b057ff', '#6a1fb4'],
+  [GARBAGE]: ['#ffffff', '#cfd6e6', '#7d86a0'],
+};
+const PLAYER_COLOURS = ['#ff5a7a', '#4aa3ff'];
+
+// Nuisance warning icons, biggest first: [puyos, kind].
+const WARN = [[720, 'crown'], [360, 'moon'], [180, 'star'], [30, 'rock'], [6, 'big'], [1, 'small']];
+
+const ease = (t) => 1 - (1 - t) ** 3;
+
+export class Renderer {
+  constructor(canvas, pictures, manifest) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.pictures = pictures;
+    this.manifest = manifest;
+    this.skin = 'modern';
+    this.me = 0; // whose field is the big one on a tall screen
+    this.particles = [];
+    this.memo = [{}, {}];
+    this.sprites = {};
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  // Loads what a match draws: the stage frame, puyo sheets for the classic look, portraits.
+  async prepare({ frame, chars }) {
+    const m = this.manifest;
+    const [frameImg, ...rest] = await Promise.all([
+      this.pictures.load(frame, false),
+      ...Object.values(m.puyo).map((n) => this.pictures.load(n)),
+    ]);
+    this.frame = frameImg;
+    this.sheets = {};
+    Object.keys(m.puyo).forEach((k, i) => { this.sheets[k] = rest[i]; });
+    this.faces = await Promise.all(chars.map((c) => this.pictures.face(c)));
+    this.figures = await Promise.all(chars.map((c) => this.pictures.figure(c)));
+    this.backdrop = null;
+  }
+
+  resize() {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const w = window.innerWidth, h = window.innerHeight;
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(h * dpr);
+    this.canvas.style.width = `${w}px`;
+    this.canvas.style.height = `${h}px`;
+    // Fit the screen, leaving room for the touch buttons below.
+    const reserve = this.touchReserve || 0;
+    this.tall = h - reserve > w * 1.15;
+    this.layout = layout(this.tall, this.me);
+    const screen = this.layout.screen;
+    this.scale = Math.min(w / screen.w, (h - reserve) / screen.h);
+    this.ox = (w - screen.w * this.scale) / 2;
+    this.oy = Math.max(0, (h - reserve - screen.h * this.scale) / 2);
+    this.dpr = dpr;
+    this.px = this.scale * dpr; // device pixels per screen unit
+    this.sprites = {};
+    this.backdrop = null;
+  }
+
+  // ---- puyo pictures ----------------------------------------------------------------------
+
+  // A modern puyo body with its face, drawn once per colour at the current size.
+  sprite(c) {
+    const key = c;
+    if (this.sprites[key]) return this.sprites[key];
+    const s = Math.ceil(CELL * this.px);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = s;
+    const x = cv.getContext('2d');
+    x.scale(s / CELL, s / CELL);
+    const [light, base, dark] = COLOURS[c];
+    const r = CELL * 0.47, cx = CELL / 2, cy = CELL / 2 + 0.5;
+    // Body: a soft ball, lit from the top left.
+    const g = x.createRadialGradient(cx - r * 0.35, cy - r * 0.45, r * 0.1, cx, cy, r);
+    g.addColorStop(0, light);
+    g.addColorStop(0.45, base);
+    g.addColorStop(1, dark);
+    x.fillStyle = g;
+    x.beginPath();
+    x.ellipse(cx, cy, r, r * 0.94, 0, 0, Math.PI * 2);
+    x.fill();
+    x.strokeStyle = 'rgba(0,0,0,0.28)';
+    x.lineWidth = 1;
+    x.stroke();
+    // Shine.
+    x.fillStyle = 'rgba(255,255,255,0.75)';
+    x.beginPath();
+    x.ellipse(cx - r * 0.42, cy - r * 0.5, r * 0.22, r * 0.12, -0.6, 0, Math.PI * 2);
+    x.fill();
+    // Eyes.
+    if (c === GARBAGE) {
+      x.fillStyle = 'rgba(60,66,90,0.85)';
+      for (const ex of [-0.3, 0.3]) { x.beginPath(); x.arc(cx + ex * r, cy - r * 0.05, r * 0.13, 0, Math.PI * 2); x.fill(); }
+    } else {
+      for (const ex of [-0.32, 0.32]) {
+        x.fillStyle = '#fff';
+        x.beginPath(); x.ellipse(cx + ex * r, cy - r * 0.02, r * 0.24, r * 0.28, 0, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#1b1530';
+        x.beginPath(); x.ellipse(cx + ex * r + r * 0.04, cy + r * 0.06, r * 0.12, r * 0.15, 0, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#fff';
+        x.beginPath(); x.arc(cx + ex * r + r * 0.08, cy - r * 0.02, r * 0.045, 0, Math.PI * 2); x.fill();
+      }
+    }
+    this.sprites[key] = cv;
+    return cv;
+  }
+
+  // Draws one puyo centred at (cx, cy) in screen units. mask: neighbours of the same colour
+  // (1 up, 2 left, 4 down, 8 right) for the classic sheets; sx/sy squash; flash 0-1 whitens.
+  puyo(ctx, c, cx, cy, { mask = 0, sx = 1, sy = 1, alpha = 1, flash = 0, size = CELL } = {}) {
+    const w = size * sx, h = size * sy;
+    const x0 = cx - w / 2, y0 = cy + size / 2 - h; // squash from the bottom
+    ctx.globalAlpha = alpha;
+    if (this.skin === 'classic' && this.sheets) {
+      const sheet = c === GARBAGE ? this.sheets.garbage : this.sheets[c];
+      if (sheet) {
+        const k = 32 * sheet.scale;
+        const [col, row] = c === GARBAGE ? [0, 4] : [mask, 0];
+        ctx.drawImage(sheet.img, col * k, row * k, k, k, x0, y0, w, h);
+      }
+    } else {
+      ctx.drawImage(this.sprite(c), x0, y0, w, h);
+    }
+    if (flash > 0) {
+      ctx.globalAlpha = alpha * flash;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.ellipse(cx, y0 + h / 2, w * 0.47, h * 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Same-colour neighbours are joined by a bridge of the body colour (modern look).
+  bridges(ctx, grid, fx, fy, skip) {
+    for (let y = 1; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const c = grid[y * W + x];
+        if (!c || c === GARBAGE || skip.has(y * W + x)) continue;
+        const [light, base, dark] = COLOURS[c];
+        const cx = fx + x * CELL + CELL / 2, cy = fy + (y - 1) * CELL + CELL / 2;
+        const t = CELL * 0.36; // half the bridge's thickness
+        if (x + 1 < W && grid[y * W + x + 1] === c && !skip.has(y * W + x + 1)) {
+          const g = ctx.createLinearGradient(0, cy - t, 0, cy + t);
+          g.addColorStop(0, light); g.addColorStop(0.35, base); g.addColorStop(1, dark);
+          ctx.fillStyle = g;
+          roundRect(ctx, cx, cy - t, CELL, t * 2, t * 0.6);
+          ctx.fill();
+        }
+        if (y + 1 < H && grid[(y + 1) * W + x] === c && !skip.has((y + 1) * W + x)) {
+          const g = ctx.createLinearGradient(cx - t, 0, cx + t, 0);
+          g.addColorStop(0, light); g.addColorStop(0.35, base); g.addColorStop(1, dark);
+          ctx.fillStyle = g;
+          roundRect(ctx, cx - t, cy, t * 2, CELL, t * 0.6);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  maskAt(grid, x, y) {
+    const c = grid[y * W + x];
+    if (!c || c === GARBAGE) return 0;
+    const same = (nx, ny) => nx >= 0 && nx < W && ny >= 1 && ny < H && grid[ny * W + nx] === c;
+    return (same(x, y - 1) ? 1 : 0) | (same(x - 1, y) ? 2 : 0) | (same(x, y + 1) ? 4 : 0) | (same(x + 1, y) ? 8 : 0);
+  }
+
+  // ---- background -------------------------------------------------------------------------
+
+  drawBackdrop(ctx) {
+    if (!this.backdrop) {
+      const cv = document.createElement('canvas');
+      cv.width = Math.ceil(SCREEN.w * this.px);
+      cv.height = Math.ceil(SCREEN.h * this.px);
+      const x = cv.getContext('2d');
+      x.scale(this.px, this.px);
+      if (this.framed && this.frame) {
+        x.imageSmoothingQuality = 'high';
+        x.drawImage(this.frame.img, 0, 0, 640, 480, 0, 0, 640, 480);
+      } else {
+        const g = x.createLinearGradient(0, 0, 0, SCREEN.h);
+        g.addColorStop(0, '#141a3a');
+        g.addColorStop(1, '#2a1240');
+        x.fillStyle = g;
+        x.fillRect(0, 0, SCREEN.w, SCREEN.h);
+        // The stage's own frame, out of focus, for its colours.
+        if (this.frame) {
+          x.save();
+          x.globalAlpha = 0.45;
+          x.filter = 'blur(10px) saturate(1.3)';
+          x.drawImage(this.frame.img, 0, 0, 640, 480, -20, -20, 680, 520);
+          x.restore();
+        }
+        const v = x.createRadialGradient(320, 240, 120, 320, 240, 420);
+        v.addColorStop(0, 'rgba(10,8,30,0)');
+        v.addColorStop(1, 'rgba(6,4,20,0.65)');
+        x.fillStyle = v;
+        x.fillRect(0, 0, SCREEN.w, SCREEN.h);
+      }
+      this.backdrop = cv;
+    }
+    if (this.framed) ctx.drawImage(this.backdrop, 0, 0, SCREEN.w, SCREEN.h);
+  }
+
+  // The original frame picture only fits the wide screen.
+  get framed() { return this.skin === 'classic' && !this.tall; }
+
+  // ---- frame ------------------------------------------------------------------------------
+
+  // match: { boards, players: [{ name, char, wins }], state, message, result, time }
+  draw(match) {
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#070912';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(this.px, 0, 0, this.px, this.ox * this.dpr, this.oy * this.dpr);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    this.drawBackdrop(ctx);
+    if (!this.framed) {
+      // The soft-focus stage fills the whole window, not just the 640x480 screen.
+      const cw = this.canvas.width, ch = this.canvas.height, bw = this.backdrop.width, bh = this.backdrop.height;
+      const k = Math.max(cw / bw, ch / bh);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.backdrop, (cw - bw * k) / 2, (ch - bh * k) / 2, bw * k, bh * k);
+      ctx.setTransform(this.px, 0, 0, this.px, this.ox * this.dpr, this.oy * this.dpr);
+    }
+    match.boards.forEach((b, i) => {
+      const at = this.layout.fields[i], home = FIELDS[i];
+      ctx.save();
+      ctx.translate(at.x - home.x * at.s, at.y - home.y * at.s);
+      ctx.scale(at.s, at.s);
+      this.drawField(ctx, b, i, match);
+      this.drawParticles(ctx, i);
+      this.drawResult(ctx, i, match);
+      ctx.restore();
+    });
+    this.drawCentre(ctx, match);
+    this.drawBanner(ctx, match);
+  }
+
+  drawField(ctx, b, i, match) {
+    const { x: fx, y: fy } = FIELDS[i];
+    const memo = this.memo[i];
+    const modern = !this.framed;
+    if (modern) {
+      // Glass panel.
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = 'rgba(8,10,26,0.72)';
+      roundRect(ctx, fx - 6, fy - 6, FIELD_W + 12, FIELD_H + 12, 14);
+      ctx.fill();
+      ctx.restore();
+      const edge = ctx.createLinearGradient(fx, fy, fx, fy + FIELD_H);
+      edge.addColorStop(0, PLAYER_COLOURS[i]);
+      edge.addColorStop(1, 'rgba(255,255,255,0.15)');
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 2;
+      roundRect(ctx, fx - 6, fy - 6, FIELD_W + 12, FIELD_H + 12, 14);
+      ctx.stroke();
+      // Faint cell dots.
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      for (let y = 1; y < H; y++) for (let x = 0; x < W; x++) {
+        ctx.beginPath(); ctx.arc(fx + x * CELL + CELL / 2, fy + (y - 1) * CELL + CELL / 2, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      // The spot that ends the game.
+      ctx.strokeStyle = 'rgba(255,80,110,0.45)';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      const dx = fx + DEATH_X * CELL + CELL / 2, dy = fy + CELL / 2;
+      ctx.beginPath();
+      ctx.moveTo(dx - 7, dy - 7); ctx.lineTo(dx + 7, dy + 7);
+      ctx.moveTo(dx + 7, dy - 7); ctx.lineTo(dx - 7, dy + 7);
+      ctx.stroke();
+    }
+
+    // Pops finishing: burst into particles.
+    const popKeys = b.popping.map((p) => p.y * W + p.x).join(',');
+    if (memo.pops && memo.pops.length && !b.popping.length) {
+      for (const p of memo.pops) this.burst(fx + p.x * CELL + CELL / 2, fy + (p.y - 1) * CELL + CELL / 2, p.c, i);
+    }
+    memo.pops = b.popping.length ? b.popping.map((p) => ({ ...p })) : memo.popKeys === popKeys ? memo.pops : [];
+    memo.popKeys = popKeys;
+
+    // When the board is lost, the whole stack sinks out of the field.
+    let sink = 0, fade = 1;
+    if (b.dead) {
+      memo.deadAt ??= match.time;
+      const t = Math.min(1, (match.time - memo.deadAt) / 1.2);
+      sink = ease(t) * FIELD_H * 0.9;
+      fade = 1 - t * 0.8;
+    } else memo.deadAt = null;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(fx - 2, fy - 2, FIELD_W + 4, FIELD_H + 4);
+    ctx.clip();
+    ctx.translate(0, sink);
+    ctx.globalAlpha = fade;
+
+    const popSet = new Set(b.popping.map((p) => p.y * W + p.x));
+    const popT = b.phase === 'pop' ? 1 - b.timer / 42 : 0;
+    if (modern) this.bridges(ctx, b.grid, fx, fy, new Set());
+    for (let y = 1; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const c = b.grid[y * W + x];
+        if (!c) continue;
+        const cx = fx + x * CELL + CELL / 2, cy = fy + (y - 1) * CELL + CELL / 2;
+        const land = b.land[y * W + x] || 0;
+        const squash = land > 0 ? Math.sin(land * Math.PI) * 0.22 : 0;
+        const opts = { mask: this.maskAt(b.grid, x, y), sx: 1 + squash * 0.6, sy: 1 - squash, alpha: fade };
+        if (popSet.has(y * W + x)) {
+          if (popT < 0.72) opts.flash = Math.floor(b.timer / 3) % 2 ? 0.75 : 0.1;
+          else { const k = (popT - 0.72) / 0.28; opts.sx = opts.sy = 1 + k * 0.35; opts.alpha = fade * (1 - k); opts.flash = 0.6; }
+        }
+        this.puyo(ctx, c, cx, cy, opts);
+      }
+    }
+    // Loose puyos falling (also the nuisance coming down).
+    for (const f of b.falling) {
+      if (f.done) continue;
+      this.puyo(ctx, f.c, fx + f.x * CELL + CELL / 2, fy + (f.y - 1) * CELL + CELL / 2, { alpha: fade });
+    }
+    // The pair being played, with where it would land.
+    const p = b.piece;
+    if (p && !b.dead) {
+      const [dx, dy] = ROT[p.r];
+      if (modern) this.ghost(ctx, b, p, fx, fy);
+      const pulse = 0.5 + 0.5 * Math.sin(match.time * 10);
+      const ax = fx + p.x * CELL + CELL / 2, ay = fy + (p.y - 1) * CELL + CELL / 2;
+      this.puyo(ctx, p.b, ax + dx * CELL, ay + dy * CELL, { alpha: fade });
+      this.puyo(ctx, p.a, ax, ay, { alpha: fade, flash: modern ? 0 : pulse * 0.25 });
+      if (modern) {
+        // The axis puyo (the one the pair turns around) wears a soft ring.
+        ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(ax, ay + 0.5, CELL * 0.5, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // Chain label.
+    if (b.chainShow > 0 && b.chainAt) {
+      const life = 1 - b.chainShow / 80;
+      const cx = fx + Math.min(W - 1.5, Math.max(1.5, b.chainAt.x + 0.5)) * CELL;
+      const cy = fy + (b.chainAt.y - 1) * CELL - life * 28;
+      const pop = life < 0.15 ? 0.6 + (life / 0.15) * 0.55 : life < 0.25 ? 1.15 - ((life - 0.15) / 0.1) * 0.15 : 1;
+      this.label(ctx, `${b.lastChain}연쇄!`, cx, cy, 22 * pop, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1 });
+    }
+    if (b.allClearShow > 0) {
+      const life = 1 - b.allClearShow / 120;
+      this.label(ctx, 'ALL CLEAR', fx + FIELD_W / 2, fy + FIELD_H * 0.42, 24, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1, colours: ['#fffbe0', '#ffd34d', '#ff8a00'] });
+      this.label(ctx, '전부 지웠다!', fx + FIELD_W / 2, fy + FIELD_H * 0.42 + 26, 14, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1 });
+    }
+
+    // Nuisance about to fall, as icons above the field.
+    this.warnings(ctx, b.warning ?? b.pending ?? 0, fx, fy - 4);
+
+    // Score.
+    const sy = fy + FIELD_H + 12;
+    if (modern) {
+      ctx.fillStyle = 'rgba(8,10,26,0.72)';
+      roundRect(ctx, fx - 6, sy, FIELD_W + 12, 28, 10);
+      ctx.fill();
+    }
+    ctx.font = `800 11px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('SCORE', fx + 4, sy + 14);
+    ctx.font = `800 19px ${FONT}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(b.score).padStart(8, '0'), fx + FIELD_W - 2, sy + 15);
+  }
+
+  ghost(ctx, b, p, fx, fy) {
+    const [dx, dy] = ROT[p.r];
+    // The field is settled while a pair is in play, so the first gap from the bottom is where it lands.
+    const land = (x) => { let y = H - 1; while (y >= 0 && b.grid[y * W + x]) y--; return y; };
+    let ya, yb;
+    if (dx === 0) {
+      const y = land(p.x);
+      if (dy > 0) { yb = y; ya = y - 1; } else { ya = y; yb = y - 1; }
+    } else { ya = land(p.x); yb = land(p.x + dx); }
+    const dot = (x, y, c) => {
+      if (y < 1) return;
+      ctx.fillStyle = COLOURS[c][1];
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.arc(fx + x * CELL + CELL / 2, fy + (y - 1) * CELL + CELL / 2, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+    dot(p.x, ya, p.a);
+    dot(p.x + dx, yb, p.b);
+  }
+
+  warnings(ctx, n, fx, y) {
+    let x = fx + 4;
+    let left = n;
+    let count = 0;
+    for (const [v, kind] of WARN) {
+      while (left >= v && count < 6) {
+        this.warnIcon(ctx, kind, x + 12, y - 12);
+        x += kind === 'small' ? 18 : 28;
+        left -= v;
+        count++;
+      }
+    }
+  }
+
+  warnIcon(ctx, kind, x, y) {
+    ctx.save();
+    if (kind === 'small' || kind === 'big') {
+      const s = kind === 'small' ? 14 : 24;
+      ctx.drawImage(this.sprite(GARBAGE), x - s / 2, y - s / 2 + (kind === 'small' ? 4 : 0), s, s);
+    } else if (kind === 'rock') {
+      const g = ctx.createLinearGradient(x - 11, y - 11, x + 11, y + 11);
+      g.addColorStop(0, '#c9cbd6'); g.addColorStop(1, '#5d6275');
+      ctx.fillStyle = g;
+      roundRect(ctx, x - 11, y - 10, 22, 21, 6);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.stroke();
+    } else if (kind === 'star') {
+      ctx.fillStyle = '#ffd84a';
+      ctx.strokeStyle = '#b57a00';
+      ctx.lineWidth = 1.5;
+      star(ctx, x, y, 12, 5.5);
+      ctx.fill(); ctx.stroke();
+    } else if (kind === 'moon') {
+      ctx.fillStyle = '#ffe680';
+      ctx.beginPath();
+      ctx.arc(x, y, 11, 0, Math.PI * 2);
+      ctx.arc(x + 5, y - 3, 9, 0, Math.PI * 2, true);
+      ctx.fill('evenodd');
+    } else {
+      ctx.fillStyle = '#ffcf3a';
+      ctx.strokeStyle = '#a86b00';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y + 8); ctx.lineTo(x - 12, y - 6); ctx.lineTo(x - 6, y); ctx.lineTo(x, y - 10);
+      ctx.lineTo(x + 6, y); ctx.lineTo(x + 12, y - 6); ctx.lineTo(x + 12, y + 8); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  drawCentre(ctx, match) {
+    const modern = !this.framed;
+    const L = this.layout;
+    match.boards.forEach((b, i) => {
+      // NEXT and the one after.
+      if (L.next[i]) this.drawNext(ctx, b, i, L.next[i], modern);
+      this.drawFace(ctx, b, i, L.face[i], match);
+      if (L.figure[i]) this.drawFigure(ctx, b, i, L.figure[i], match);
+    });
+  }
+
+  drawNext(ctx, b, i, { x, y }, modern) {
+    if (modern) {
+      ctx.fillStyle = 'rgba(8,10,26,0.72)';
+      roundRect(ctx, x, y, 80, 128, 12);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.font = `800 10px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText('NEXT', x + 40, y + 11);
+    const [n1, n2] = b.nextPairs;
+    const near = i === 0 ? x + 28 : x + 52, far = i === 0 ? x + 58 : x + 22;
+    if (n1) { this.puyo(ctx, n1[1], near, y + 38, {}); this.puyo(ctx, n1[0], near, y + 70, {}); }
+    if (n2) { this.puyo(ctx, n2[1], far, y + 74, { size: 22 }); this.puyo(ctx, n2[0], far, y + 96, { size: 22 }); }
+  }
+
+  // Portrait card, name and the rounds won.
+  drawFace(ctx, b, i, { x: px, y: py }, match) {
+    const p = match.players[i];
+    ctx.save();
+    roundRect(ctx, px, py, 80, 56, 10);
+    ctx.clip();
+    ctx.fillStyle = '#111';
+    ctx.fillRect(px, py, 80, 56);
+    const face = this.faces?.[i];
+    if (face) {
+      const sw = face.w, sh = face.w * 0.7;
+      ctx.save();
+      if (i === 1) { ctx.translate(px * 2 + 80, 0); ctx.scale(-1, 1); }
+      ctx.drawImage(face.img, face.x, face.y, sw, Math.min(face.h, sh), px, py, 80, 56);
+      ctx.restore();
+    }
+    if (b.dead) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(px, py, 80, 56); }
+    ctx.restore();
+    ctx.strokeStyle = PLAYER_COLOURS[i];
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, 80, 56, 10);
+    ctx.stroke();
+    ctx.font = `700 11px ${FONT}`;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name, px + 40, py + 66, 78);
+    // Rounds won.
+    for (let k = 0; k < match.toWin; k++) {
+      const sx = px + 40 + (k - (match.toWin - 1) / 2) * 16;
+      ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.18)';
+      star(ctx, sx, py + 82, 6, 2.8);
+      ctx.fill();
+    }
+  }
+
+  // The character standing at the bottom, bouncing when its chain goes off.
+  drawFigure(ctx, b, i, { x: cx, y: by }, match) {
+    const fig = this.figures?.[i];
+    if (fig) {
+      const pose = b.dead ? 2 : match.result?.winner === i ? 1 : 0;
+      const hop = b.chainShow > 50 ? Math.sin(((80 - b.chainShow) / 30) * Math.PI) * 8 : 0;
+      const w = 80, h = (fig.h / fig.w) * 80;
+      ctx.save();
+      ctx.translate(cx, by - hop);
+      if (i === 1) ctx.scale(-1, 1);
+      ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
+      ctx.restore();
+    }
+  }
+
+  // READY / GO.
+  drawBanner(ctx, match) {
+    if (!match.message) return;
+    const { text, sub, t = 1 } = match.message;
+    const k = ease(Math.min(1, t * 3));
+    const { w, h } = this.layout.screen;
+    this.label(ctx, text, w / 2, h * 0.46, 46 * (0.6 + 0.4 * k), { alpha: k });
+    if (sub) this.label(ctx, sub, w / 2, h * 0.46 + 38, 16, { alpha: k, colours: ['#ffffff', '#dfe8ff', '#9fb4ff'] });
+  }
+
+  // The round result over a field.
+  drawResult(ctx, i, match) {
+    if (!match.result) return;
+    const { x, y } = FIELDS[i];
+    const won = match.result.winner === i;
+    const draw = match.result.winner === -1;
+    this.label(ctx, draw ? 'DRAW' : won ? 'WIN!' : 'LOSE', x + FIELD_W / 2, y + FIELD_H * 0.38, 38,
+      { colours: won ? ['#fffbe0', '#ffd34d', '#ff8a00'] : ['#ffffff', '#c7d0ea', '#6f7a9e'] });
+  }
+
+  // Big outlined text with a gradient, centred.
+  label(ctx, text, x, y, size, { alpha = 1, colours = ['#fff6d8', '#ffcf3a', '#ff6a00'] } = {}) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `900 ${size}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = size * 0.22;
+    ctx.strokeStyle = 'rgba(20,10,40,0.9)';
+    ctx.strokeText(text, x, y);
+    const g = ctx.createLinearGradient(0, y - size / 2, 0, y + size / 2);
+    g.addColorStop(0, colours[0]);
+    g.addColorStop(0.5, colours[1]);
+    g.addColorStop(1, colours[2]);
+    ctx.fillStyle = g;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  // ---- particles --------------------------------------------------------------------------
+
+  burst(x, y, c, field) {
+    const colour = (COLOURS[c] || COLOURS[GARBAGE])[1];
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2 + Math.random() * 0.6;
+      const v = 1.5 + Math.random() * 2.5;
+      this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2, r: 2.5 + Math.random() * 3, life: 1, colour, field });
+    }
+  }
+
+  step() {
+    for (const p of this.particles) {
+      p.x += p.vx; p.y += p.vy;
+      p.vy += 0.22;
+      p.vx *= 0.97;
+      p.life -= 0.03;
+    }
+    this.particles = this.particles.filter((p) => p.life > 0);
+  }
+
+  drawParticles(ctx, field) {
+    for (const p of this.particles) {
+      if (p.field !== field) continue;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.colour;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (0.5 + p.life * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = Math.max(0, p.life) * 0.8;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(p.x - p.r * 0.3, p.y - p.r * 0.3, p.r * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Forget per-board animation state between rounds.
+  reset() {
+    this.memo = [{}, {}];
+    this.particles = [];
+  }
+
+  // Screen point (CSS pixels) to screen units, for taps on the canvas.
+  toScreen(clientX, clientY) {
+    return { x: (clientX - this.ox) / this.scale, y: (clientY - this.oy) / this.scale };
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function star(ctx, x, y, outer, inner) {
+  ctx.beginPath();
+  for (let k = 0; k < 10; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI) / 5;
+    const r = k % 2 ? inner : outer;
+    ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  ctx.closePath();
+}

@@ -1,0 +1,28 @@
+{
+  "name": "taebo-games-puyo-puyo2",
+  "version": "0.0.1",
+  "description": "뿌요뿌요 투 스타일 대전 퍼즐 게임 (브라우저)",
+  "private": true,
+  "keywords": [
+    ""
+  ],
+  "license": "",
+  "author": "",
+  "scripts": {
+    "start": "webpack serve --open --config webpack.config.dev.js",
+    "build": "webpack --config webpack.config.prod.js",
+    "puyo:assets": "node puyo/tools/convert-assets.mjs",
+    "deploy": "npx -y wrangler@3 pages deploy dist --project-name taesu-puyo2 --branch main --commit-dirty=true",
+    "release": "node puyo/tools/release.mjs"
+  },
+  "devDependencies": {
+    "copy-webpack-plugin": "^11.0.0",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.0.4",
+    "webpack-merge": "^5.10.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0"
+  }
+}
