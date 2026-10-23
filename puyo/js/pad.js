@@ -17,6 +17,7 @@ export class Pad {
     for (const [action, list] of Object.entries(map)) for (const code of list) this.codes[code] = action;
     this.held = { left: false, right: false, down: false };
     this.queue = []; // turns pressed since the last frame
+    this.moves = []; // single steps from swipes
     this.dir = 0;
     this.hold = 0;
     this.fresh = false;
@@ -44,9 +45,13 @@ export class Pad {
     }
   }
 
+  // One column left (-1) or right (1), e.g. from a finger dragging across the field.
+  nudge(dir) { this.moves.push(dir); }
+
   release() {
     this.held = { left: false, right: false, down: false };
     this.queue = [];
+    this.moves = [];
     this.dir = 0;
   }
 
@@ -57,6 +62,7 @@ export class Pad {
       if (this.fresh || dir !== this.dir) { move = dir; this.hold = 0; this.dir = dir; this.fresh = false; }
       else if (++this.hold >= DELAY && (this.hold - DELAY) % REPEAT === 0) move = dir;
     }
+    if (this.moves.length) move = this.moves.shift();
     const turn = this.queue.shift() || 0;
     return { move, turn, soft: this.held.down };
   }

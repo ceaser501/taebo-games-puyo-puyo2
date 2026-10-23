@@ -207,6 +207,29 @@ body {
   gap: 8px;
 }
 
+/* Phones: six to a row, so the whole cast fits above the Start button. */
+@media (max-width: 520px) {
+  #roster {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 5px;
+  }
+
+  .panel #roster button {
+    border-radius: 8px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+}
+
+/* Start stays in reach while the menu scrolls. */
+.panel #start {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+}
+
 .panel #roster button {
   position: relative;
   aspect-ratio: 96 / 112;

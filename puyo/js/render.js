@@ -52,6 +52,21 @@ const PLAYER_COLOURS = ['#ff5a7a', '#4aa3ff'];
 // Nuisance warning icons, biggest first: [puyos, kind].
 const WARN = [[720, 'crown'], [360, 'moon'], [180, 'star'], [30, 'rock'], [6, 'big'], [1, 'small']];
 
+// Pieces of the original PUYO_RY sheet (640x240): [x, y, w, h].
+const RY = {
+  ren: [248, 32, 32, 14], // "연쇄"
+  crown: [192, 128, 32, 32], star: [224, 128, 32, 32], rock: [256, 128, 32, 32],
+  big: [288, 128, 32, 32], small: [320, 144, 16, 16], moon: [336, 128, 32, 32],
+  allClear: [16, 144, 160, 48], // "싹쓸이!"
+};
+// Two fonts on the same sheet, 16 px wide: big pink (32 high) and white (16 high).
+const GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ :-.';
+const FONTS = { big: { y: 0, h: 32 }, white: { y: 208, h: 16 } };
+// The left NEXT window on the original frames, with its border.
+const NEXT_WINDOW = [232, 56, 80, 144];
+// The original frames' lower middle window, where the characters stand.
+const STAGE_WINDOW = [240, 224, 160, 176];
+
 const ease = (t) => 1 - (1 - t) ** 3;
 
 export class Renderer {
@@ -63,6 +78,7 @@ export class Renderer {
     this.skin = 'modern';
     this.me = 0; // whose field is the big one on a tall screen
     this.particles = [];
+    this.rings = []; // original pop bursts (classic look)
     this.memo = [{}, {}];
     this.sprites = {};
     this.resize();
@@ -72,11 +88,13 @@ export class Renderer {
   // Loads what a match draws: the stage frame, puyo sheets for the classic look, portraits.
   async prepare({ frame, chars }) {
     const m = this.manifest;
-    const [frameImg, ...rest] = await Promise.all([
+    const [frameImg, ry, ...rest] = await Promise.all([
       this.pictures.load(frame, false),
+      this.pictures.load('GRP/PUYO_RY'),
       ...Object.values(m.puyo).map((n) => this.pictures.load(n)),
     ]);
     this.frame = frameImg;
+    this.ry = ry;
     this.sheets = {};
     Object.keys(m.puyo).forEach((k, i) => { this.sheets[k] = rest[i]; });
     this.faces = await Promise.all(chars.map((c) => this.pictures.face(c)));
@@ -101,6 +119,7 @@ export class Renderer {
     this.oy = Math.max(0, (h - reserve - screen.h * this.scale) / 2);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
+    this.cellPx = CELL * this.scale * this.layout.fields[this.me].s; // CSS pixels per cell of my field
     this.sprites = {};
     this.backdrop = null;
   }
@@ -159,7 +178,7 @@ export class Renderer {
     const w = size * sx, h = size * sy;
     const x0 = cx - w / 2, y0 = cy + size / 2 - h; // squash from the bottom
     ctx.globalAlpha = alpha;
-    if (this.skin === 'classic' && this.sheets) {
+    if (this.classic && this.sheets) {
       const sheet = c === GARBAGE ? this.sheets.garbage : this.sheets[c];
       if (sheet) {
         const k = 32 * sheet.scale;
@@ -222,9 +241,11 @@ export class Renderer {
       cv.height = Math.ceil(SCREEN.h * this.px);
       const x = cv.getContext('2d');
       x.scale(this.px, this.px);
-      if (this.framed && this.frame) {
+      if (this.classic && this.frame) {
         x.imageSmoothingQuality = 'high';
         x.drawImage(this.frame.img, 0, 0, 640, 480, 0, 0, 640, 480);
+        // Upright phones: the frame only as a dimmed backdrop; fields bring their own border.
+        if (!this.framed) { x.fillStyle = 'rgba(0,0,0,0.65)'; x.fillRect(0, 0, SCREEN.w, SCREEN.h); }
       } else {
         const g = x.createLinearGradient(0, 0, 0, SCREEN.h);
         g.addColorStop(0, '#141a3a');
@@ -250,8 +271,34 @@ export class Renderer {
     if (this.framed) ctx.drawImage(this.backdrop, 0, 0, SCREEN.w, SCREEN.h);
   }
 
-  // The original frame picture only fits the wide screen.
-  get framed() { return this.skin === 'classic' && !this.tall; }
+  get classic() { return this.skin === 'classic'; }
+  // The whole original frame picture only fits the wide screen.
+  get framed() { return this.classic && !this.tall; }
+
+  // A piece of the frame picture, copied to the same place (callers move it with the transform).
+  frameCut(ctx, [sx, sy, sw, sh], dx = sx, dy = sy) {
+    if (this.frame) ctx.drawImage(this.frame.img, sx, sy, sw, sh, dx, dy, sw, sh);
+  }
+
+  ryCut(ctx, key, x, y, w, h) {
+    if (!this.ry) return;
+    const [sx, sy, sw, sh] = RY[key], k = this.ry.scale;
+    ctx.drawImage(this.ry.img, sx * k, sy * k, sw * k, sh * k, x, y, w ?? sw, h ?? sh);
+  }
+
+  // Text in one of the original fonts; returns the width. align: 'left' | 'right' | 'center'.
+  glyphs(ctx, text, x, y, font = 'white', align = 'left', size = 1) {
+    if (!this.ry) return 0;
+    const f = FONTS[font], k = this.ry.scale;
+    const w = 16 * size * text.length;
+    let cx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+    for (const ch of text.toUpperCase()) {
+      const i = GLYPHS.indexOf(ch);
+      if (i >= 0 && ch !== ' ') ctx.drawImage(this.ry.img, i * 16 * k, f.y * k, 16 * k, f.h * k, cx, y, 16 * size, f.h * size);
+      cx += 16 * size;
+    }
+    return w;
+  }
 
   // ---- frame ------------------------------------------------------------------------------
 
@@ -290,7 +337,9 @@ export class Renderer {
   drawField(ctx, b, i, match) {
     const { x: fx, y: fy } = FIELDS[i];
     const memo = this.memo[i];
-    const modern = !this.framed;
+    const modern = !this.classic;
+    // Upright phones, original look: the field with its border, cut out of the frame.
+    if (this.classic && !this.framed) this.frameCut(ctx, [fx - 16, fy - 16, FIELD_W + 32, FIELD_H + 32]);
     if (modern) {
       // Glass panel.
       ctx.save();
@@ -326,7 +375,11 @@ export class Renderer {
     // Pops finishing: burst into particles.
     const popKeys = b.popping.map((p) => p.y * W + p.x).join(',');
     if (memo.pops && memo.pops.length && !b.popping.length) {
-      for (const p of memo.pops) this.burst(fx + p.x * CELL + CELL / 2, fy + (p.y - 1) * CELL + CELL / 2, p.c, i);
+      for (const p of memo.pops) {
+        const x = fx + p.x * CELL + CELL / 2, y = fy + (p.y - 1) * CELL + CELL / 2;
+        if (this.classic) this.rings.push({ x, y, c: p.c, t: 0, field: i });
+        else this.burst(x, y, p.c, i);
+      }
     }
     memo.pops = b.popping.length ? b.popping.map((p) => ({ ...p })) : memo.popKeys === popKeys ? memo.pops : [];
     memo.popKeys = popKeys;
@@ -374,7 +427,7 @@ export class Renderer {
     const p = b.piece;
     if (p && !b.dead) {
       const [dx, dy] = ROT[p.r];
-      if (modern) this.ghost(ctx, b, p, fx, fy);
+      this.ghost(ctx, b, p, fx, fy);
       const pulse = 0.5 + 0.5 * Math.sin(match.time * 10);
       const ax = fx + p.x * CELL + CELL / 2, ay = fy + (p.y - 1) * CELL + CELL / 2;
       this.puyo(ctx, p.b, ax + dx * CELL, ay + dy * CELL, { alpha: fade });
@@ -395,18 +448,41 @@ export class Renderer {
       const cx = fx + Math.min(W - 1.5, Math.max(1.5, b.chainAt.x + 0.5)) * CELL;
       const cy = fy + (b.chainAt.y - 1) * CELL - life * 28;
       const pop = life < 0.15 ? 0.6 + (life / 0.15) * 0.55 : life < 0.25 ? 1.15 - ((life - 0.15) / 0.1) * 0.15 : 1;
-      this.label(ctx, `${b.lastChain}연쇄!`, cx, cy, 22 * pop, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1 });
+      const alpha = life > 0.8 ? (1 - life) / 0.2 : 1;
+      if (this.classic) {
+        // The original: the count in the big font, then "연쇄".
+        const n = String(b.lastChain), w = n.length * 16 + 34;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(cx, cy);
+        ctx.scale(pop, pop);
+        this.glyphs(ctx, n, -w / 2, -16, 'big');
+        this.ryCut(ctx, 'ren', -w / 2 + n.length * 16 + 2, 2);
+        ctx.restore();
+      } else this.label(ctx, `${b.lastChain}연쇄!`, cx, cy, 22 * pop, { alpha });
     }
     if (b.allClearShow > 0) {
       const life = 1 - b.allClearShow / 120;
-      this.label(ctx, 'ALL CLEAR', fx + FIELD_W / 2, fy + FIELD_H * 0.42, 24, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1, colours: ['#fffbe0', '#ffd34d', '#ff8a00'] });
-      this.label(ctx, '전부 지웠다!', fx + FIELD_W / 2, fy + FIELD_H * 0.42 + 26, 14, { alpha: life > 0.8 ? (1 - life) / 0.2 : 1 });
+      const alpha = life > 0.8 ? (1 - life) / 0.2 : 1;
+      if (this.classic) {
+        ctx.globalAlpha = alpha;
+        const bob = Math.sin(life * Math.PI * 6) * 3;
+        this.ryCut(ctx, 'allClear', fx + FIELD_W / 2 - 80, fy + FIELD_H * 0.38 + bob);
+        ctx.globalAlpha = 1;
+      } else {
+        this.label(ctx, 'ALL CLEAR', fx + FIELD_W / 2, fy + FIELD_H * 0.42, 24, { alpha, colours: ['#fffbe0', '#ffd34d', '#ff8a00'] });
+        this.label(ctx, '전부 지웠다!', fx + FIELD_W / 2, fy + FIELD_H * 0.42 + 26, 14, { alpha });
+      }
     }
 
     // Nuisance about to fall, as icons above the field.
     this.warnings(ctx, b.warning ?? b.pending ?? 0, fx, fy - 4);
 
     // Score.
+    if (this.classic) {
+      this.glyphs(ctx, String(b.score).padStart(8, ' '), fx + FIELD_W, fy + FIELD_H + 8, 'white', 'right');
+      return;
+    }
     const sy = fy + FIELD_H + 12;
     if (modern) {
       ctx.fillStyle = 'rgba(8,10,26,0.72)';
@@ -461,6 +537,11 @@ export class Renderer {
   }
 
   warnIcon(ctx, kind, x, y) {
+    if (this.classic && this.ry) {
+      const [, , w, h] = RY[kind];
+      this.ryCut(ctx, kind, x - w / 2, y + 12 - h);
+      return;
+    }
     ctx.save();
     if (kind === 'small' || kind === 'big') {
       const s = kind === 'small' ? 14 : 24;
@@ -498,30 +579,69 @@ export class Renderer {
   }
 
   drawCentre(ctx, match) {
-    const modern = !this.framed;
     const L = this.layout;
     match.boards.forEach((b, i) => {
       // NEXT and the one after.
-      if (L.next[i]) this.drawNext(ctx, b, i, L.next[i], modern);
-      this.drawFace(ctx, b, i, L.face[i], match);
-      if (L.figure[i]) this.drawFigure(ctx, b, i, L.figure[i], match);
+      if (L.next[i]) this.drawNext(ctx, b, i, L.next[i]);
+      if (this.framed) {
+        // On the original frame: the characters in the lower window, names under it.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(...STAGE_WINDOW);
+        ctx.clip();
+        this.drawFigure(ctx, b, i, { x: i === 0 ? 280 : 360, y: 402 }, match);
+        ctx.restore();
+        this.drawName(ctx, i, i === 0 ? 272 : 368, 418, match);
+      } else {
+        this.drawFace(ctx, b, i, L.face[i], match);
+        if (L.figure[i]) this.drawFigure(ctx, b, i, L.figure[i], match);
+      }
     });
   }
 
-  drawNext(ctx, b, i, { x, y }, modern) {
-    if (modern) {
+  drawName(ctx, i, x, y, match) {
+    const p = match.players[i];
+    ctx.font = `800 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(p.name, x, y, 78);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(p.name, x, y, 78);
+    this.drawWins(ctx, p, x, y + 16, match);
+  }
+
+  drawWins(ctx, p, x, y, match) {
+    for (let k = 0; k < match.toWin; k++) {
+      const sx = x + (k - (match.toWin - 1) / 2) * 16;
+      ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1.5;
+      star(ctx, sx, y, 6, 2.8);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  drawNext(ctx, b, i, { x, y }) {
+    if (this.classic) {
+      // The original NEXT window (the frame already has it on the wide screen).
+      if (!this.framed) this.frameCut(ctx, NEXT_WINDOW, x + 4, y + 14);
+    } else {
       ctx.fillStyle = 'rgba(8,10,26,0.72)';
       roundRect(ctx, x, y, 80, 128, 12);
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 1;
       ctx.stroke();
+      ctx.font = `800 10px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText('NEXT', x + 40, y + 11);
     }
-    ctx.font = `800 10px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('NEXT', x + 40, y + 11);
     const [n1, n2] = b.nextPairs;
     const near = i === 0 ? x + 28 : x + 52, far = i === 0 ? x + 58 : x + 22;
     if (n1) { this.puyo(ctx, n1[1], near, y + 38, {}); this.puyo(ctx, n1[0], near, y + 70, {}); }
@@ -554,13 +674,7 @@ export class Renderer {
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.fillText(p.name, px + 40, py + 66, 78);
-    // Rounds won.
-    for (let k = 0; k < match.toWin; k++) {
-      const sx = px + 40 + (k - (match.toWin - 1) / 2) * 16;
-      ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.18)';
-      star(ctx, sx, py + 82, 6, 2.8);
-      ctx.fill();
-    }
+    this.drawWins(ctx, p, px + 40, py + 82, match);
   }
 
   // The character standing at the bottom, bouncing when its chain goes off.
@@ -637,9 +751,21 @@ export class Renderer {
       p.life -= 0.03;
     }
     this.particles = this.particles.filter((p) => p.life > 0);
+    for (const r of this.rings) r.t++;
+    this.rings = this.rings.filter((r) => r.t < 18);
   }
 
   drawParticles(ctx, field) {
+    // The original pop: a ring of little puyos (sheet row 1, cells 1 and 2) spreading out.
+    for (const r of this.rings) {
+      if (r.field !== field) continue;
+      const sheet = this.sheets?.[r.c === GARBAGE ? 'garbage' : r.c];
+      if (!sheet || r.c === GARBAGE) continue;
+      const k = 32 * sheet.scale, size = 32 * (1 + r.t / 18);
+      ctx.globalAlpha = 1 - (r.t / 18) ** 2;
+      ctx.drawImage(sheet.img, (r.t < 9 ? 1 : 2) * k, k, k, k, r.x - size / 2, r.y - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
     for (const p of this.particles) {
       if (p.field !== field) continue;
       ctx.globalAlpha = Math.max(0, p.life);
@@ -660,6 +786,7 @@ export class Renderer {
   reset() {
     this.memo = [{}, {}];
     this.particles = [];
+    this.rings = [];
   }
 
   // Screen point (CSS pixels) to screen units, for taps on the canvas.

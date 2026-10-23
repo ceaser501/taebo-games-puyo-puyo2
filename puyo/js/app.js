@@ -97,7 +97,7 @@ async function init() {
   const cpu = store.get('puyo-cpu', 'random');
   pick.cpu = cpu === 'random' || !ROSTER.includes(Number(cpu)) ? 'random' : Number(cpu);
   $('player-name').value = store.get('puyo-name', '');
-  $('skin').value = store.get('puyo-skin', 'modern');
+  $('skin').value = store.get('puyo-skin', 'classic');
   $('rounds').value = store.get('puyo-rounds', '2');
   $('opponent').value = store.get('puyo-opponent', 'normal');
   buildRoster();
@@ -244,6 +244,40 @@ for (const button of document.querySelectorAll('#touch [data-act]')) {
   button.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 $('t-menu').onclick = () => togglePause();
+
+// Finger on the field: drag sideways to move a column at a time, drag down to drop fast,
+// tap to turn (right half of the screen clockwise, left half the other way).
+let gesture = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (!match || !myPad() || !$('pause').hidden || !$('end').hidden) return;
+  e.preventDefault();
+  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t0: performance.now(), moved: false, soft: false };
+});
+canvas.addEventListener('pointermove', (e) => {
+  const g = gesture, pad = myPad();
+  if (!g || g.id !== e.pointerId || !pad) return;
+  const step = Math.max(18, renderer.cellPx * 0.75);
+  while (Math.abs(e.clientX - g.x) >= step) {
+    const dir = Math.sign(e.clientX - g.x);
+    pad.nudge(dir);
+    g.x += dir * step;
+    g.moved = true;
+  }
+  const dy = e.clientY - g.y0, dx = Math.abs(e.clientX - g.x0);
+  if (!g.soft && dy > step * 1.2 && dy > dx) { g.soft = true; g.moved = true; pad.press('down', true); }
+  else if (g.soft && dy < step * 0.6) { g.soft = false; pad.press('down', false); }
+});
+const endGesture = (e) => {
+  const g = gesture;
+  if (!g || g.id !== e.pointerId) return;
+  gesture = null;
+  const pad = myPad();
+  if (!pad) return;
+  if (g.soft) pad.press('down', false);
+  if (!g.moved && performance.now() - g.t0 < 350) pad.press(e.clientX > innerWidth / 2 ? 'cw' : 'ccw', true);
+};
+canvas.addEventListener('pointerup', endGesture);
+canvas.addEventListener('pointercancel', (e) => { if (gesture?.soft) myPad()?.press('down', false); gesture = null; });
 
 // In-game menu: the match waits while it is open (not online).
 let quitArmed = null;
