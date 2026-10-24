@@ -36,23 +36,26 @@ function layout(tall, me, extra = 0, pad = 16) {
     };
   }
   // Upright: the status bar on top (time, names, scores), my field, and in the column beside
-  // it NEXT, the menu button under it, then the other field; below them the two characters face
-  // each other, and the row of touch buttons sits under that. NEXT starts level with the top
-  // of my field and the other field ends level with its bottom.
+  // it NEXT (level with the top of my field) with the other field right under it; below them
+  // the two characters face each other, the menu button beside the other one, and the row of
+  // touch buttons sits under that.
   const o = 1 - me;
   const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
-  // Mine starts 7 units under the bar (border included); the edges line up border to border.
+  // Mine starts 7 units under the bar (border included); NEXT lines up with its border, and
+  // the other field's border starts 8 units under NEXT (the original window is 144 tall, the
+  // modern box 128).
   const s = 1.05, so = 0.48, top = BAR.y + BAR.h + 7 + pad * s;
   L.fields[me] = { x: 21, y: top, s };
-  L.fields[o] = { x: 256, y: top + FIELD_H * (s - so) + pad * (s - so), s: so };
   L.next[me] = { x: 248, y: top - pad * s };
   L.next[o] = null;
-  L.menu = { x: 268, y: 246, size: 40 };
+  L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
+  L.menu = { x: 310, y: TALL_H + extra - 46, size: 38 }; // bottom right when there are no characters
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
     const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
     L.figure[me] = { x: 100, y, h, name: true };
     L.figure[o] = { x: 260, y, h, name: true };
+    L.menu = { x: 310, y: y - h / 2 - 19, size: 38 };
   }
   return L;
 }
