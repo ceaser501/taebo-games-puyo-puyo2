@@ -19,10 +19,13 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 // short screens shrink the game a little rather than lose them.
 const FIGURE_STRIP = 90;
 // Height of the tall layout without that strip: status bar, then my field drawn 1.05x.
-const TALL_H = 524;
+const TALL_H = 516;
+// Status bar on a tall screen, a little clear of the top edge.
+const BAR = { x: 8, y: 10, w: 344, h: 56 };
 
 // extra: screen units left below the fields on a tall screen, where the characters stand.
-function layout(tall, me, extra = 0) {
+// pad: how far a field's border sticks out (the original frame 16, the glass panel 6).
+function layout(tall, me, extra = 0, pad = 16) {
   if (!tall) {
     return {
       screen: SCREEN,
@@ -32,16 +35,19 @@ function layout(tall, me, extra = 0) {
       figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
     };
   }
-  // Upright: the status bar on top (time, scores, chains), my field, and NEXT and the other
-  // field in the column beside it; below them the two characters face each other, and the
-  // row of touch buttons sits under that.
+  // Upright: the status bar on top (time, names, scores), my field, and in the column beside
+  // it NEXT, the menu button under it, then the other field; below them the two characters face
+  // each other, and the row of touch buttons sits under that. NEXT starts level with the top
+  // of my field and the other field ends level with its bottom.
   const o = 1 - me;
   const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
-  // A small gap (about 12 units) between my field's border and the column on the right.
-  L.fields[me] = { x: 21, y: 98, s: 1.05 };
-  L.fields[o] = { x: 258, y: 250, s: 0.46 };
-  L.next[me] = { x: 248, y: 72 };
+  // Mine starts 7 units under the bar (border included); the edges line up border to border.
+  const s = 1.05, so = 0.48, top = BAR.y + BAR.h + 7 + pad * s;
+  L.fields[me] = { x: 21, y: top, s };
+  L.fields[o] = { x: 256, y: top + FIELD_H * (s - so) + pad * (s - so), s: so };
+  L.next[me] = { x: 248, y: top - pad * s };
   L.next[o] = null;
+  L.menu = { x: 268, y: 246, size: 40 };
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
     const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
@@ -49,6 +55,17 @@ function layout(tall, me, extra = 0) {
     L.figure[o] = { x: 260, y, h, name: true };
   }
   return L;
+}
+
+// The notch's height (env(safe-area-inset-top)), measured on a hidden probe.
+let probe = null;
+function safeTop() {
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+    document.body.appendChild(probe);
+  }
+  return probe.offsetHeight;
 }
 
 const clock = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
@@ -139,20 +156,23 @@ export class Renderer {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    // The touch buttons are one row along the bottom: ◀ ▶ ▼ on the left, ⟳ on the right.
+    // The touch buttons are one row along the bottom: ◀ ▶ on the left, ⟳ and the hard drop on the right.
     // Upright, the game sits above that row at full width and the characters fill whatever
     // height is left; on its side, the 4:3 screen is centred and the row runs under its margins.
     this.tall = h > w * 1.15;
     let btn = 0;
     if (this.tall) {
-      // Four buttons over the width: 24 side padding, 20 between the left three, and at least
-      // 40 between the groups. They are a little taller than wide, for thumbs.
-      btn = this.touch ? Math.floor(Math.min((w - 24 - 20 - 40) / 4, 76)) : 0;
+      // Four buttons over the width: 24 side padding, 10 between ◀ and ▶, at least 40 between
+      // the groups, and a quarter button more between ⟳ and the hard drop so a quick turn
+      // never lands on the drop. They are a little taller than wide, for thumbs.
+      btn = this.touch ? Math.floor(Math.min((w - 24 - 10 - 40 - 10) / 4.25, 80)) : 0;
       const room = btn ? Math.round(btn * 1.2) + 26 : 0;
-      this.scale = Math.min(w / 360, (h - room) / (TALL_H + FIGURE_STRIP));
-      this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - TALL_H));
+      // Below the notch when the page runs full screen.
+      const inset = safeTop();
+      this.scale = Math.min(w / 360, (h - room - inset) / (TALL_H + FIGURE_STRIP));
+      this.layout = layout(true, this.me, Math.max(0, (h - room - inset) / this.scale - TALL_H), this.classic ? 16 : 6);
       this.ox = (w - 360 * this.scale) / 2;
-      this.oy = 0;
+      this.oy = inset;
     } else {
       this.layout = layout(false, this.me);
       this.scale = Math.min(w / SCREEN.w, h / SCREEN.h);
@@ -160,7 +180,9 @@ export class Renderer {
       this.oy = (h - SCREEN.h * this.scale) / 2;
       btn = Math.floor(Math.max(44, Math.min((this.ox - 24 - 20) / 3, 70)));
     }
-    this.controls = { tall: this.tall, btn };
+    const m = this.layout.menu;
+    const menu = m && { x: this.ox + m.x * this.scale, y: this.oy + m.y * this.scale, size: m.size * this.scale };
+    this.controls = { tall: this.tall, btn, menu };
     this.onLayout?.(this.controls);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
@@ -755,7 +777,8 @@ export class Renderer {
   drawNext(ctx, b, i, { x, y }) {
     if (this.classic) {
       // The original NEXT window (the frame already has it on the wide screen).
-      if (!this.framed) this.frameCut(ctx, NEXT_WINDOW, x + 4, y + 14);
+      // Upright its window top lines up with y.
+      if (!this.framed) { y -= 14; this.frameCut(ctx, NEXT_WINDOW, x + 4, y + 14); }
     } else {
       ctx.fillStyle = 'rgba(8,10,26,0.72)';
       roundRect(ctx, x, y, 80, 128, 12);
@@ -861,47 +884,48 @@ export class Renderer {
       this.hudText(ctx, time, 320, 16, 16, 'center', '#fff');
       return;
     }
-    const right = L.screen.w - 52; // the pause button sits beyond this
+    // Upright: time and the rounds won in the middle, each name over its score either side.
     ctx.fillStyle = 'rgba(6,8,20,0.82)';
-    roundRect(ctx, 4, 4, right - 4, 60, 12);
+    roundRect(ctx, BAR.x, BAR.y, BAR.w, BAR.h, 14);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
-    const mid = (4 + right) / 2;
-    this.hudText(ctx, time, mid, 24, 22, 'center', '#fff', 0.85);
-    // Rounds won under the time: mine on the left, theirs on the right.
+    const mid = BAR.x + BAR.w / 2;
+    this.hudText(ctx, time, mid, BAR.y + 22, 24, 'center', '#fff', 0.85);
     const me = this.me, other = 1 - me;
     for (const [i, dir] of [[me, -1], [other, 1]]) {
       const p = match.players[i];
       for (let k = 0; k < match.toWin; k++) {
         ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.22)';
-        star(ctx, mid + dir * (12 + k * 14), 52, 5.5, 2.5);
+        star(ctx, mid + dir * (8 + k * 13), BAR.y + 45, 5, 2.3);
         ctx.fill();
       }
     }
-    this.hudSide(ctx, match, me, 12, 'left');
-    this.hudSide(ctx, match, other, right - 8, 'right');
+    const gap = this.classic ? 64 : 54; // half the time's width and a little
+    this.hudSide(ctx, match, me, mid - gap, 'right');
+    this.hudSide(ctx, match, other, mid + gap, 'left');
   }
 
-  // One player's corner of the status bar: name and chains on top, score below.
+  // One player's side of the status bar, against the time: name (chains outside it) over the score.
   hudSide(ctx, match, i, x, align) {
     const b = match.boards[i], p = match.players[i];
     const now = b.chainShow > 0 ? b.lastChain : 0;
+    const y = BAR.y;
     ctx.font = `800 13px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = align;
     ctx.fillStyle = PLAYER_COLOURS[i];
-    const name = p.name.length > 4 ? `${p.name.slice(0, 4)}…` : p.name;
-    ctx.fillText(name, x, 17);
+    const name = p.name.length > 5 ? `${p.name.slice(0, 5)}…` : p.name;
+    ctx.fillText(name, x, y + 16);
     const nameW = ctx.measureText(name).width;
     const chain = now ? `${now}연쇄!` : b.maxChain ? `최대${b.maxChain}` : '';
     if (chain) {
-      ctx.font = `800 12px ${FONT}`;
+      ctx.font = `800 11px ${FONT}`;
       ctx.fillStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.65)';
-      ctx.fillText(chain, align === 'left' ? x + nameW + 5 : x - nameW - 5, 17);
+      ctx.fillText(chain, align === 'left' ? x + nameW + 5 : x - nameW - 5, y + 16);
     }
-    this.hudText(ctx, String(b.score), x, 46, 20, align, '#fff', 0.8);
+    this.hudText(ctx, String(b.score), x, y + 39, 20, align, '#fff', 0.8);
   }
 
   // Numbers and times in the status bar: the original white font, or plain text when modern.

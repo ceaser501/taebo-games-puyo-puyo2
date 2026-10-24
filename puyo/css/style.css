@@ -463,13 +463,17 @@ body.touch .keys {
   text-align: center;
 }
 
+/* Over the middle of the game, clear of the status bar. */
 #net-banner {
   position: fixed;
-  top: 12px;
+  top: 38%;
   left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: calc(100vw - 48px);
+  padding: 12px 18px;
+  border-radius: 16px;
+  text-align: center;
   background: rgba(255, 90, 122, 0.9);
   font-size: 13px;
   font-weight: 700;
@@ -541,6 +545,11 @@ body.touch .keys {
   pointer-events: auto;
 }
 
+/* ⟳ sits well apart from the hard drop so a quick turn never lands on it. */
+#touch .cluster:last-of-type {
+  gap: calc(10px + var(--btn) * 0.25);
+}
+
 #touch .cluster button {
   width: var(--btn);
   height: calc(var(--btn) * 1.2);
@@ -557,6 +566,16 @@ body.touch .keys {
 
 #touch .cluster button.turn {
   font-size: calc(var(--btn) * 0.46);
+}
+
+#touch .cluster button.hard {
+  background: rgba(255, 170, 30, 0.3);
+  border-color: rgba(255, 207, 58, 0.65);
+}
+
+#touch .cluster button.hard svg {
+  width: calc(var(--btn) * 0.5);
+  height: calc(var(--btn) * 0.5);
 }
 
 #touch .cluster button.held {

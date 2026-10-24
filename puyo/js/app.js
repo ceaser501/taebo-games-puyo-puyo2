@@ -161,6 +161,8 @@ async function start(setup = pickSetup(), online = null) {
     onEnd: (winner) => { if (match === m) setTimeout(() => showEnd(winner), 1200); },
   });
   match = m;
+  hold.me = hold.friend = false;
+  netBanner('');
   m.startRound(online?.seed);
   $('lobby').hidden = true;
   $('menu').hidden = true;
@@ -414,8 +416,12 @@ function setTouch(on) {
 }
 
 // The renderer picks the button size from the room it leaves for the row of buttons.
-function placeControls({ btn }) {
+function placeControls({ btn, menu }) {
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
+  // Upright the menu button sits in the game, under NEXT; otherwise in the top corner.
+  const b = $('t-menu').style;
+  if (menu) Object.assign(b, { left: `${menu.x}px`, top: `${menu.y}px`, right: 'auto', width: `${menu.size}px`, height: `${menu.size}px` });
+  else Object.assign(b, { left: '', top: '', right: '', width: '', height: '' });
 }
 const myPad = () => pads[net ? lobby.me : 0];
 for (const button of document.querySelectorAll('#touch [data-act]')) {
@@ -443,14 +449,15 @@ for (const button of document.querySelectorAll('#touch [data-act]')) {
 }
 $('t-menu').onclick = () => togglePause();
 
-// Finger on the field: drag sideways to move a column at a time, drag down to drop fast,
-// tap to turn (always the same way, like the turn button).
+// Finger on the field: drag sideways to move a column at a time, flick down to drop straight
+// to the bottom, tap to turn (always the same way, like the turn button). There is no slow
+// pull down: it was too easy to start by mistake.
 let gesture = null;
 canvas.addEventListener('pointerdown', (e) => {
   if (!match || !myPad() || !$('pause').hidden || !$('end').hidden) return;
   e.preventDefault();
   const t = performance.now();
-  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t0: t, moved: false, soft: false, trail: [[t, e.clientY]] };
+  gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, t0: t, moved: false, trail: [[t, e.clientY]] };
 });
 canvas.addEventListener('pointermove', (e) => {
   const g = gesture, pad = myPad();
@@ -466,10 +473,7 @@ canvas.addEventListener('pointermove', (e) => {
   g.trail.push([now, e.clientY]);
   while (g.trail.length > 2 && now - g.trail[0][0] > 120) g.trail.shift();
   const dy = e.clientY - g.y0, dx = Math.abs(e.clientX - g.x0);
-  // A slow pull down drops fast while held; a quick flick is left for the hard drop on release.
-  if (!g.soft && dy > step * 1.2 && dy > dx && performance.now() - g.t0 > 180) { g.soft = true; g.moved = true; pad.press('down', true); }
-  else if (!g.soft && dy > step * 1.2 && dy > dx) g.moved = true;
-  else if (g.soft && dy < step * 0.6) { g.soft = false; pad.press('down', false); }
+  if (dy > step * 1.2 && dy > dx) g.moved = true;
 });
 const endGesture = (e) => {
   const g = gesture;
@@ -477,36 +481,58 @@ const endGesture = (e) => {
   gesture = null;
   const pad = myPad();
   if (!pad) return;
-  if (g.soft) pad.press('down', false);
   const now = performance.now(), dt = now - g.t0, dy = e.clientY - g.y0;
   // A quick flick down at the end (speed over the last tenth of a second) drops the pair to
-  // the bottom at once, also after a slow pull.
+  // the bottom at once.
   const [t1, y1] = g.trail[0];
   const speed = (e.clientY - y1) / Math.max(1, now - t1);
   if (dy > renderer.cellPx * 1.5 && speed > 0.7 && dy > Math.abs(e.clientX - g.x0)) pad.press('hard', true);
   else if (!g.moved && dt < 350) pad.press('cw', true);
 };
 canvas.addEventListener('pointerup', endGesture);
-canvas.addEventListener('pointercancel', (e) => { if (gesture?.soft) myPad()?.press('down', false); gesture = null; });
+canvas.addEventListener('pointercancel', () => { gesture = null; });
 
-// In-game menu: the match waits while it is open (not online).
+// In-game menu: the match waits while it is open. Online both games wait: each side tells the
+// other whether its menu is open (a few times, numbered so a late copy can't undo a newer one),
+// and the match runs only while neither is.
 let quitArmed = null;
+const hold = { me: false, friend: false, n: 0, seen: -1 };
+function applyHold() {
+  if (match && !match.over) match.paused = hold.me || hold.friend;
+  if (net) netBanner(hold.friend ? '친구가 일시정지했어요. 잠시 기다려 주세요…' : '');
+}
+function sendHold() {
+  if (!net) return;
+  const msg = { t: 'pause', on: hold.me, n: ++hold.n };
+  for (const ms of [0, 300, 1000]) setTimeout(() => net?.send(msg), ms);
+}
+function friendHold(msg) {
+  if (msg.n <= hold.seen) return;
+  hold.seen = msg.n;
+  hold.friend = !!msg.on;
+  applyHold();
+}
 function togglePause() {
   if ($('pause').hidden) openPause(); else closePause();
 }
 function openPause() {
   if (!match) return;
-  $('pause-note').textContent = net ? '온라인 게임은 메뉴를 열어도 계속 진행돼요. 나가면 친구와의 게임이 끝나요.' : '';
+  $('pause-note').textContent = net ? '친구 게임도 함께 멈춰요. 나가면 친구와의 게임이 끝나요.' : '';
   $('pause').hidden = false;
   pads.forEach((p) => p?.release());
-  if (!net) match.paused = true;
+  hold.me = true;
+  applyHold();
+  sendHold();
 }
 function closePause() {
   $('pause').hidden = true;
   $('quit').textContent = '게임 나가기';
   clearTimeout(quitArmed);
   quitArmed = null;
-  if (match) match.paused = false;
+  if (!hold.me) return;
+  hold.me = false;
+  applyHold();
+  sendHold();
 }
 $('resume').onclick = closePause;
 $('quit').onclick = () => {
@@ -628,6 +654,7 @@ $('lobby-rounds').onchange = () => {
 
 function openNet() {
   net?.close();
+  Object.assign(hold, { me: false, friend: false, n: 0, seen: -1 });
   net = new Net({
     onIncoming: () => { lobby.guestState = 'connecting'; lobbyStatus('친구가 들어오고 있어요…'); renderLobby(); },
     onConnected: () => { if (!lobby.host) net.send({ t: 'hello', name: lobby.guestName, char: lobby.guestChar }); },
@@ -726,6 +753,7 @@ function fromGuest(msg) {
     net.send(lobbyMsg());
     return;
   }
+  if (msg.t === 'pause') { friendHold(msg); return; }
   if (msg.t === 'char') {
     if (ROSTER.includes(msg.c)) lobby.guestChar = msg.c;
     if (!$('lobby').hidden) renderLobby();
@@ -748,6 +776,7 @@ async function fromHost(msg) {
     return;
   }
   if (msg.t === 'result') { showResult(msg.result); return; }
+  if (msg.t === 'pause') { friendHold(msg); return; }
   if (msg.t === 'go') {
     if (msg.id === joinedGo) return;
     joinedGo = msg.id;
@@ -765,6 +794,7 @@ function netBanner(text) {
 
 function friendLeft() {
   if (!net || !lobby) return;
+  Object.assign(hold, { friend: false, seen: -1 });
   netBanner('');
   closePause();
   if (lobby.host) {
