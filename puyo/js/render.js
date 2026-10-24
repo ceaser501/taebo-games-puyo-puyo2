@@ -18,8 +18,8 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 // Height kept under the fields on a tall screen for the two characters (with names and stars);
 // short screens shrink the game a little rather than lose them.
 const FIGURE_STRIP = 90;
-// Height of the tall layout without that strip: status bar, then my field drawn 1.12x.
-const TALL_H = 552;
+// Height of the tall layout without that strip: status bar, then my field drawn 1.05x.
+const TALL_H = 524;
 
 // extra: screen units left below the fields on a tall screen, where the characters stand.
 function layout(tall, me, extra = 0) {
@@ -37,9 +37,10 @@ function layout(tall, me, extra = 0) {
   // row of touch buttons sits under that.
   const o = 1 - me;
   const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
-  L.fields[me] = { x: 24, y: 98, s: 1.12 };
-  L.fields[o] = { x: 266, y: 250, s: 0.44 };
-  L.next[me] = { x: 258, y: 72 };
+  // A clear gap (about 26 units) between my field's border and the column on the right.
+  L.fields[me] = { x: 21, y: 98, s: 1.05 };
+  L.fields[o] = { x: 272, y: 250, s: 0.42 };
+  L.next[me] = { x: 260, y: 72 };
   L.next[o] = null;
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
@@ -84,6 +85,19 @@ const NEXT_WINDOW = [232, 56, 80, 144];
 const STAGE_WINDOW = [240, 224, 160, 176];
 
 const ease = (t) => 1 - (1 - t) ** 3;
+
+// What the characters say. Arle calls her spells by chain step; the others share lines.
+const LINES = {
+  arleChain: ['에잇!', '파이어!', '아이스 스톰!', '다이아 큐트!', '브레인 담드!', '쥬겜!', '바요엔~!'],
+  chain: ['간다!', '에잇!', '받아라!', '아직이야!', '이것도 받아!', '끝이다!', '최고다~!'],
+  hurt: ['으앗!', '아야야…', '안 돼~!', '무거워!'],
+  allClear: ['싹쓸이!'],
+  win: ['이겼다!', '해냈어!', '내가 최고!'],
+  lose: ['졌다…', '분해~!'],
+  arleLose: ['바탄큐~'],
+};
+const pickLine = (list) => list[Math.floor(Math.random() * list.length)];
+const BUBBLE_TIME = 1.5; // seconds a speech bubble stays
 
 export class Renderer {
   constructor(canvas, pictures, manifest) {
@@ -131,8 +145,11 @@ export class Renderer {
     this.tall = h > w * 1.15;
     let btn = 0;
     if (this.tall) {
-      btn = this.touch ? Math.floor(Math.min((w - 48 - 40 - 24) / 5, 76)) : 0;
-      const room = btn ? btn + 28 : 0;
+      // Five buttons over the width: 24 side padding, 20 between the left three, at least 16
+      // between the groups, and the wider gap between ⟳ and ⤓ (a quarter button). They are a
+      // little taller than wide, for thumbs.
+      btn = this.touch ? Math.floor(Math.min((w - 24 - 20 - 16 - 10) / 5.25, 84)) : 0;
+      const room = btn ? Math.round(btn * 1.2) + 26 : 0;
       this.scale = Math.min(w / 360, (h - room) / (TALL_H + FIGURE_STRIP));
       this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - TALL_H));
       this.ox = (w - 360 * this.scale) / 2;
@@ -632,17 +649,82 @@ export class Renderer {
         ctx.beginPath();
         ctx.rect(...STAGE_WINDOW);
         ctx.clip();
-        this.drawFigure(ctx, b, i, { x: i === 0 ? 280 : 360, y: 402 }, match);
+        const at = { x: i === 0 ? 280 : 360, y: 402 };
+        this.drawFigure(ctx, b, i, at, match);
         ctx.restore();
         this.drawName(ctx, i, i === 0 ? 272 : 368, 418, match);
+        this.drawBubble(ctx, i, at.x, at.y - 96, match);
       } else {
         if (L.face[i]) this.drawFace(ctx, b, i, L.face[i], match);
-        if (L.figure[i]) {
-          this.drawFigure(ctx, b, i, L.figure[i], match);
-          if (L.figure[i].name) this.drawName(ctx, i, L.figure[i].x, L.figure[i].y + 10, match);
+        const f = L.figure[i];
+        if (f) {
+          this.drawFigure(ctx, b, i, f, match);
+          if (f.name) this.drawName(ctx, i, f.x, f.y + 10, match);
+          this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) - 4, match);
         }
       }
     });
+  }
+
+  // Watches a board for things worth a reaction: a chain step, a load of nuisance on its way,
+  // an all clear, losing, winning. Returns the character's mood memo.
+  react(b, i, match) {
+    const m = (this.memo[i].fig ??= { chain: 0, warn: 0 });
+    const t = match.time;
+    const arle = match.players[i].char === 0;
+    const say = (text) => { m.bubble = { text, t0: t }; };
+    const chainNow = b.chainShow > 0 ? b.lastChain : 0;
+    if (chainNow && chainNow !== m.chain) say(arle ? LINES.arleChain[Math.min(chainNow, 7) - 1] : LINES.chain[Math.min(chainNow, 7) - 1]);
+    m.chain = chainNow;
+    const warn = b.warning ?? b.pending ?? 0;
+    if (warn - m.warn >= 6) { m.hitAt = t; say(pickLine(LINES.hurt)); }
+    m.warn = warn;
+    if (b.allClearShow > 0 && !m.allClear) say(LINES.allClear[0]);
+    m.allClear = b.allClearShow > 0;
+    if (b.dead && !m.dead) say(pickLine(arle ? LINES.arleLose : LINES.lose));
+    m.dead = b.dead;
+    const won = match.result?.winner === i;
+    if (won && !m.won) say(pickLine(LINES.win));
+    m.won = won;
+    return m;
+  }
+
+  drawBubble(ctx, i, x, y, match) {
+    const m = this.memo[i].fig;
+    const bub = m?.bubble;
+    if (!bub) return;
+    const age = match.time - bub.t0;
+    if (age > BUBBLE_TIME || age < 0) { m.bubble = null; return; }
+    const pop = age < 0.12 ? 0.6 + (age / 0.12) * 0.4 : 1;
+    const alpha = age > BUBBLE_TIME - 0.3 ? (BUBBLE_TIME - age) / 0.3 : 1;
+    ctx.save();
+    ctx.font = `800 12px ${FONT}`;
+    const tw = ctx.measureText(bub.text).width, bw = tw + 16, bh = 22;
+    const sw = this.layout.screen.w;
+    const bx = Math.min(sw - bw / 2 - 4, Math.max(bw / 2 + 4, x));
+    ctx.globalAlpha = alpha;
+    ctx.translate(bx, y);
+    ctx.scale(pop, pop);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(20,10,40,0.85)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, -bw / 2, -bh, bw, bh, 10);
+    ctx.fill();
+    ctx.stroke();
+    // Tail towards the speaker's head.
+    const tx = x - bx;
+    ctx.beginPath();
+    ctx.moveTo(tx - 5, -1); ctx.lineTo(tx, 7); ctx.lineTo(tx + 5, -1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(tx - 5, 0); ctx.lineTo(tx, 7); ctx.lineTo(tx + 5, 0);
+    ctx.stroke();
+    ctx.fillStyle = '#1b1530';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(bub.text, 0, -bh / 2 + 1);
+    ctx.restore();
   }
 
   drawName(ctx, i, x, y, match) {
@@ -725,18 +807,45 @@ export class Renderer {
 
   // The character standing at the bottom, bouncing when its chain goes off.
   // size: drawn height (default: 80 wide). The one on the right faces left.
+  // Never quite still: breathes while idle, jumps on its chains and when it wins, flinches when
+  // nuisance is coming, slumps when it loses.
   drawFigure(ctx, b, i, { x: cx, y: by, h: size }, match) {
     const fig = this.figures?.[i];
-    if (fig) {
-      const pose = b.dead ? 2 : match.result?.winner === i ? 1 : 0;
-      const hop = b.chainShow > 50 ? Math.sin(((80 - b.chainShow) / 30) * Math.PI) * 8 : 0;
-      const h = size ?? (fig.h / fig.w) * 80, w = (fig.w / fig.h) * h;
-      ctx.save();
-      ctx.translate(cx, by - hop);
-      if (cx > this.layout.screen.w / 2) ctx.scale(-1, 1);
-      ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
-      ctx.restore();
+    if (!fig) return;
+    const m = this.react(b, i, match);
+    const t = match.time;
+    const h = size ?? (fig.h / fig.w) * 80, w = (fig.w / fig.h) * h;
+    const k = h / 93; // motion scales with the drawn size
+    const won = match.result?.winner === i;
+    const hurt = m.hitAt != null && t - m.hitAt < 0.5;
+    let pose = 0, dx = 0, dy = 0, sx = 1, sy = 1;
+    if (b.dead) {
+      pose = 2;
+      sy = 0.92;
+    } else if (won) {
+      pose = 1;
+      dy = -Math.abs(Math.sin(t * 6)) * 10 * k;
+    } else if (b.chainShow > 40) {
+      pose = 1;
+      dy = -Math.sin(((80 - b.chainShow) / 40) * Math.PI) * 12 * k;
+    } else if (hurt) {
+      pose = 2;
+      dx = Math.sin(t * 60) * 3 * k;
+    } else {
+      // Breathing, a little out of step between the two.
+      const s = Math.sin(t * 2.6 + i * 1.7);
+      sy = 1 + s * 0.025;
+      sx = 1 - s * 0.015;
+      dy = -Math.max(0, Math.sin(t * 1.3 + i)) * 1.5 * k;
+      // Worried when a lot of nuisance is waiting.
+      if ((b.warning ?? 0) >= 12) dx = Math.sin(t * 25) * 1.2 * k;
     }
+    ctx.save();
+    ctx.translate(cx + dx, by + dy);
+    if (cx > this.layout.screen.w / 2) ctx.scale(-1, 1);
+    ctx.scale(sx, sy);
+    ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
+    ctx.restore();
   }
 
   // ---- status bar ------------------------------------------------------------------------

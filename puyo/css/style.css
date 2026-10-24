@@ -541,10 +541,15 @@ body.touch .keys {
   pointer-events: auto;
 }
 
+/* ⟳ sits well apart from ⤓ so a quick turn never lands on the drop. */
+#touch .cluster:last-of-type {
+  gap: calc(10px + var(--btn) * 0.25);
+}
+
 #touch .cluster button {
   width: var(--btn);
-  height: var(--btn);
-  border-radius: 50%;
+  height: calc(var(--btn) * 1.2);
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   background: rgba(20, 16, 40, 0.6);
   backdrop-filter: blur(8px);
