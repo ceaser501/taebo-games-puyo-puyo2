@@ -418,7 +418,7 @@ function setTouch(on) {
 // The renderer picks the button size from the room it leaves for the row of buttons.
 function placeControls({ btn, menu }) {
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
-  // Upright the menu button sits in the game, beside the other character; otherwise in the top corner.
+  // Upright the menu button sits at the left end of the status bar; otherwise in the top corner.
   const b = $('t-menu').style;
   if (menu) Object.assign(b, { left: `${menu.x}px`, top: `${menu.y}px`, right: 'auto', width: `${menu.size}px`, height: `${menu.size}px` });
   else Object.assign(b, { left: '', top: '', right: '', width: '', height: '' });

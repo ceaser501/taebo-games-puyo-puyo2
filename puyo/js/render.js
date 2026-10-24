@@ -35,10 +35,10 @@ function layout(tall, me, extra = 0, pad = 16) {
       figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
     };
   }
-  // Upright: the status bar on top (time, names, scores), my field, and in the column beside
-  // it NEXT (level with the top of my field) with the other field right under it; below them
-  // the two characters face each other, the menu button beside the other one, and the row of
-  // touch buttons sits under that.
+  // Upright: the status bar on top (the menu button at its left end, then time, names and
+  // scores), my field, and in the column beside it NEXT (level with the top of my field) with
+  // the other field right under it; below them the two characters face each other, and the row
+  // of touch buttons sits under that.
   const o = 1 - me;
   const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
   // Mine starts 7 units under the bar (border included); NEXT lines up with its border, and
@@ -49,13 +49,12 @@ function layout(tall, me, extra = 0, pad = 16) {
   L.next[me] = { x: 248, y: top - pad * s };
   L.next[o] = null;
   L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
-  L.menu = { x: 310, y: TALL_H + extra - 46, size: 38 }; // bottom right when there are no characters
+  L.menu = { x: BAR.x + 6, y: BAR.y + 8, size: 40 };
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
     const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
     L.figure[me] = { x: 100, y, h, name: true };
     L.figure[o] = { x: 260, y, h, name: true };
-    L.menu = { x: 310, y: y - h / 2 - 19, size: 38 };
   }
   return L;
 }
@@ -684,7 +683,8 @@ export class Renderer {
         if (f) {
           this.drawFigure(ctx, b, i, f, match);
           if (f.name) this.drawName(ctx, i, f.x, f.y + 10, match);
-          this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) - 4, match);
+          // Above the tallest pose and the highest hop.
+          this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) * 1.3 - 4, match);
         }
       }
     });
@@ -839,8 +839,12 @@ export class Renderer {
     if (!fig) return;
     const m = this.react(b, i, match);
     const t = match.time;
-    const h = size ?? (fig.h / fig.w) * 80, w = (fig.w / fig.h) * h;
-    const k = h / 93; // motion scales with the drawn size
+    // `size` is the standing pose's height; every pose keeps the same pixel scale, but no pose
+    // may be wider than 1.6 times that or taller than 1.2 times (wings, big monsters).
+    const P = fig.poses, stand = P[0];
+    const base = size ?? 80 * (stand.h / stand.w);
+    const px = Math.min(base / stand.h, (base * 1.6) / Math.max(...P.map((q) => q.w)), (base * 1.2) / Math.max(...P.map((q) => q.h)));
+    const k = base / 93; // motion scales with the drawn size
     const won = match.result?.winner === i;
     const hurt = m.hitAt != null && t - m.hitAt < 0.5;
     let pose = 0, dx = 0, dy = 0, sx = 1, sy = 1;
@@ -869,7 +873,8 @@ export class Renderer {
     ctx.translate(cx + dx, by + dy);
     if (cx > this.layout.screen.w / 2) ctx.scale(-1, 1);
     ctx.scale(sx, sy);
-    ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
+    const q = P[pose] ?? stand, w = q.w * px, h = q.h * px;
+    ctx.drawImage(fig.img, q.x, q.y, q.w, q.h, -w / 2, -h, w, h);
     ctx.restore();
   }
 
@@ -905,29 +910,23 @@ export class Renderer {
         ctx.fill();
       }
     }
+    // Clear of the menu button at the bar's left end (up to x 54).
     const gap = this.classic ? 64 : 54; // half the time's width and a little
     this.hudSide(ctx, match, me, mid - gap, 'right');
     this.hudSide(ctx, match, other, mid + gap, 'left');
   }
 
-  // One player's side of the status bar, against the time: name (chains outside it) over the score.
+  // One player's side of the status bar, against the time: the name over the score. While a
+  // chain is popping, 'N연쇄!' takes the name's place.
   hudSide(ctx, match, i, x, align) {
     const b = match.boards[i], p = match.players[i];
     const now = b.chainShow > 0 ? b.lastChain : 0;
     const y = BAR.y;
-    ctx.font = `800 13px ${FONT}`;
+    ctx.font = `800 12px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = align;
-    ctx.fillStyle = PLAYER_COLOURS[i];
-    const name = p.name.length > 5 ? `${p.name.slice(0, 5)}…` : p.name;
-    ctx.fillText(name, x, y + 16);
-    const nameW = ctx.measureText(name).width;
-    const chain = now ? `${now}연쇄!` : b.maxChain ? `최대${b.maxChain}` : '';
-    if (chain) {
-      ctx.font = `800 11px ${FONT}`;
-      ctx.fillStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.65)';
-      ctx.fillText(chain, align === 'left' ? x + nameW + 5 : x - nameW - 5, y + 16);
-    }
+    ctx.fillStyle = now ? '#ffd84a' : PLAYER_COLOURS[i];
+    ctx.fillText(now ? `${now}연쇄!` : p.name.length > 4 ? `${p.name.slice(0, 4)}…` : p.name, x, y + 16);
     this.hudText(ctx, String(b.score), x, y + 39, 20, align, '#fff', 0.8);
   }
 
