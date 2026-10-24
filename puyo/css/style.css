@@ -520,72 +520,48 @@ body.touch .keys {
 
 /* ---- touch controls ---- */
 
-/* Upright: under the game, filling the rest of the screen. On its side: in the margins.
-   --btn (the button size) and --top (where the game ends) are set from app.js. */
+/* One row along the bottom; --btn (the button size) is set from app.js to fit the screen. */
 #touch {
-  --btn: 72px;
-  --gap: 10px;
+  --btn: 64px;
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  top: var(--top, 60%);
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 0 calc(12px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(12px + env(safe-area-inset-left));
+  align-items: flex-end;
+  padding: 0 calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
   pointer-events: none;
   z-index: 1;
 }
 
-#touch.sides {
-  top: 0;
-  padding-bottom: 0;
-}
-
 #touch .cluster {
-  display: grid;
-  grid-template-columns: repeat(2, var(--btn));
-  grid-template-rows: var(--row1, 52px) var(--row2, 72px);
-  gap: var(--gap);
+  display: flex;
+  gap: 10px;
   pointer-events: auto;
 }
 
 #touch .cluster button {
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(20, 16, 40, 0.55);
+  width: var(--btn);
+  height: var(--btn);
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(20, 16, 40, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #fff;
-  font-size: calc(var(--btn) * 0.36);
+  font-size: calc(var(--btn) * 0.38);
   line-height: 1;
   touch-action: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-}
-
-#touch .cluster button.wide {
-  grid-column: span 2;
-  font-size: calc(var(--btn) * 0.3);
-}
-
-#touch .cluster button small {
-  font-size: 11px;
-  font-weight: 700;
-  opacity: 0.8;
 }
 
 #touch .cluster button.turn {
-  font-size: calc(var(--btn) * 0.42);
+  font-size: calc(var(--btn) * 0.46);
 }
 
 #touch .cluster button.hard {
-  background: rgba(255, 170, 30, 0.28);
-  border-color: rgba(255, 207, 58, 0.6);
+  background: rgba(255, 170, 30, 0.3);
+  border-color: rgba(255, 207, 58, 0.65);
 }
 
 #touch .cluster button.held {

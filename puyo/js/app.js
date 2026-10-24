@@ -221,27 +221,9 @@ function setTouch(on) {
   renderer.resize();
 }
 
-// The renderer says where the game ends; the buttons fill the space below it (upright) or the
-// margins beside it (on its side), as big as fits but no bigger than a thumb needs.
-function placeControls({ tall, top, side }) {
-  const box = $('touch');
-  box.classList.toggle('sides', !tall);
-  const gap = 10;
-  let width, height;
-  if (tall) {
-    box.style.setProperty('--top', `${Math.round(top)}px`);
-    width = (innerWidth - 24 - gap * 2 - 24) / 4;
-    height = innerHeight - top - 24; // both rows
-  } else {
-    box.style.removeProperty('--top');
-    width = (side - 24 - gap) / 2;
-    height = Math.min(innerHeight - 40, width * 2.6);
-  }
-  // Top row (move / turn, used most) a little taller than the bottom one (drops).
-  const rows = Math.max(100, height - gap);
-  box.style.setProperty('--btn', `${Math.max(44, Math.floor(width))}px`);
-  box.style.setProperty('--row1', `${Math.floor(Math.min(rows * 0.58, 150))}px`);
-  box.style.setProperty('--row2', `${Math.floor(Math.min(rows * 0.42, 110))}px`);
+// The renderer picks the button size from the room it leaves for the row of buttons.
+function placeControls({ btn }) {
+  if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
 }
 const myPad = () => pads[net ? lobby.me : 0];
 for (const button of document.querySelectorAll('#touch [data-act]')) {

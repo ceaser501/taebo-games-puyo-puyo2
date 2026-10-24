@@ -15,7 +15,8 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 // Where things go. Fields are drawn at FIELDS and moved/scaled to `fields`. 'wide' is the
 // original screen; 'tall' (phones held upright) gives the player's own field the full width
 // and shows the other one small beside it.
-function layout(tall, me) {
+// extra: screen units left below the fields on a tall screen, where the characters stand.
+function layout(tall, me, extra = 0) {
   if (!tall) {
     return {
       screen: SCREEN,
@@ -26,17 +27,22 @@ function layout(tall, me) {
     };
   }
   // Upright: the status bar on top (time, scores, chains), my field, and NEXT and the other
-  // field in the column beside it. The touch buttons take the rest of the screen below.
+  // field in the column beside it; below them the two characters face each other, and the
+  // row of touch buttons sits under that.
   const o = 1 - me;
-  const L = { screen: { w: 360, h: 490 }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
+  const L = { screen: { w: 360, h: 490 + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
   L.fields[me] = { x: 20, y: 84, s: 1 };
   L.fields[o] = { x: 246, y: 252, s: 0.54 };
   L.next[me] = { x: 242, y: 60 };
   L.next[o] = null;
+  if (extra >= 70) {
+    const h = Math.min(extra - 30, 150), y = 490 + extra - 30;
+    L.figure[me] = { x: 100, y, h, name: true };
+    L.figure[o] = { x: 260, y, h, name: true };
+  }
   return L;
 }
 
-const MIN_CONTROLS = 190; // CSS pixels kept for the touch buttons on an upright phone
 const clock = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
 const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", system-ui, sans-serif';
@@ -112,23 +118,26 @@ export class Renderer {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    // Upright, the game sits at the top at full width and the touch buttons get everything
-    // below it (at least MIN_CONTROLS); on its side, the 4:3 screen is centred and the buttons
-    // go in the margins left and right.
+    // The touch buttons are one row along the bottom: ◀ ▼ ▶ on the left, ⟳ ⤓ on the right.
+    // Upright, the game sits above that row at full width and the characters fill whatever
+    // height is left; on its side, the 4:3 screen is centred and the row runs under its margins.
     this.tall = h > w * 1.15;
-    this.layout = layout(this.tall, this.me);
-    const screen = this.layout.screen;
+    let btn = 0;
     if (this.tall) {
-      const room = this.touch ? MIN_CONTROLS : 0;
-      this.scale = Math.min(w / screen.w, (h - room) / screen.h);
-      this.ox = (w - screen.w * this.scale) / 2;
-      this.oy = this.touch ? 0 : (h - screen.h * this.scale) / 2;
+      btn = this.touch ? Math.floor(Math.min((w - 48 - 40 - 24) / 5, 76)) : 0;
+      const room = btn ? btn + 28 : 0;
+      this.scale = Math.min(w / 360, (h - room) / 490);
+      this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - 490));
+      this.ox = (w - 360 * this.scale) / 2;
+      this.oy = 0;
     } else {
-      this.scale = Math.min(w / screen.w, h / screen.h);
-      this.ox = (w - screen.w * this.scale) / 2;
-      this.oy = (h - screen.h * this.scale) / 2;
+      this.layout = layout(false, this.me);
+      this.scale = Math.min(w / SCREEN.w, h / SCREEN.h);
+      this.ox = (w - SCREEN.w * this.scale) / 2;
+      this.oy = (h - SCREEN.h * this.scale) / 2;
+      btn = Math.floor(Math.max(44, Math.min((this.ox - 24 - 20) / 3, 70)));
     }
-    this.controls = { tall: this.tall, top: this.oy + screen.h * this.scale, side: this.ox };
+    this.controls = { tall: this.tall, btn };
     this.onLayout?.(this.controls);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
@@ -619,7 +628,10 @@ export class Renderer {
         this.drawName(ctx, i, i === 0 ? 272 : 368, 418, match);
       } else {
         if (L.face[i]) this.drawFace(ctx, b, i, L.face[i], match);
-        if (L.figure[i]) this.drawFigure(ctx, b, i, L.figure[i], match);
+        if (L.figure[i]) {
+          this.drawFigure(ctx, b, i, L.figure[i], match);
+          if (L.figure[i].name) this.drawName(ctx, i, L.figure[i].x, L.figure[i].y + 10, match);
+        }
       }
     });
   }
@@ -703,15 +715,16 @@ export class Renderer {
   }
 
   // The character standing at the bottom, bouncing when its chain goes off.
-  drawFigure(ctx, b, i, { x: cx, y: by }, match) {
+  // size: drawn height (default: 80 wide). The one on the right faces left.
+  drawFigure(ctx, b, i, { x: cx, y: by, h: size }, match) {
     const fig = this.figures?.[i];
     if (fig) {
       const pose = b.dead ? 2 : match.result?.winner === i ? 1 : 0;
       const hop = b.chainShow > 50 ? Math.sin(((80 - b.chainShow) / 30) * Math.PI) * 8 : 0;
-      const w = 80, h = (fig.h / fig.w) * 80;
+      const h = size ?? (fig.h / fig.w) * 80, w = (fig.w / fig.h) * h;
       ctx.save();
       ctx.translate(cx, by - hop);
-      if (i === 1) ctx.scale(-1, 1);
+      if (cx > this.layout.screen.w / 2) ctx.scale(-1, 1);
       ctx.drawImage(fig.img, 0, pose * fig.h, fig.w, fig.h, -w / 2, -h, w, h);
       ctx.restore();
     }
