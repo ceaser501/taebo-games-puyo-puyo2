@@ -37,10 +37,10 @@ function layout(tall, me, extra = 0) {
   // row of touch buttons sits under that.
   const o = 1 - me;
   const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
-  // A clear gap (about 26 units) between my field's border and the column on the right.
+  // A small gap (about 12 units) between my field's border and the column on the right.
   L.fields[me] = { x: 21, y: 98, s: 1.05 };
-  L.fields[o] = { x: 272, y: 250, s: 0.42 };
-  L.next[me] = { x: 260, y: 72 };
+  L.fields[o] = { x: 258, y: 250, s: 0.46 };
+  L.next[me] = { x: 248, y: 72 };
   L.next[o] = null;
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
