@@ -15,6 +15,10 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 // Where things go. Fields are drawn at FIELDS and moved/scaled to `fields`. 'wide' is the
 // original screen; 'tall' (phones held upright) gives the player's own field the full width
 // and shows the other one small beside it.
+// Height kept under the fields on a tall screen for the two characters (with names and stars);
+// short screens shrink the game a little rather than lose them.
+const FIGURE_STRIP = 140;
+
 // extra: screen units left below the fields on a tall screen, where the characters stand.
 function layout(tall, me, extra = 0) {
   if (!tall) {
@@ -35,8 +39,9 @@ function layout(tall, me, extra = 0) {
   L.fields[o] = { x: 246, y: 252, s: 0.54 };
   L.next[me] = { x: 242, y: 60 };
   L.next[o] = null;
-  if (extra >= 70) {
-    const h = Math.min(extra - 30, 150), y = 490 + extra - 30;
+  if (extra >= FIGURE_STRIP) {
+    // Feet above the name and the stars, which take the last 36 units.
+    const h = Math.min(extra - 44, 150), y = 490 + extra - 40;
     L.figure[me] = { x: 100, y, h, name: true };
     L.figure[o] = { x: 260, y, h, name: true };
   }
@@ -126,7 +131,7 @@ export class Renderer {
     if (this.tall) {
       btn = this.touch ? Math.floor(Math.min((w - 48 - 40 - 24) / 5, 76)) : 0;
       const room = btn ? btn + 28 : 0;
-      this.scale = Math.min(w / 360, (h - room) / 490);
+      this.scale = Math.min(w / 360, (h - room) / (490 + FIGURE_STRIP));
       this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - 490));
       this.ox = (w - 360 * this.scale) / 2;
       this.oy = 0;
