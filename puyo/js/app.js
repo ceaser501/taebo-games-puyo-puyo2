@@ -237,11 +237,11 @@ function placeControls({ tall, top, side }) {
     width = (side - 24 - gap) / 2;
     height = Math.min(innerHeight - 40, width * 2.6);
   }
-  // Bottom row (move / turn) a little taller than the top one (drop).
+  // Top row (move / turn, used most) a little taller than the bottom one (drops).
   const rows = Math.max(100, height - gap);
   box.style.setProperty('--btn', `${Math.max(44, Math.floor(width))}px`);
-  box.style.setProperty('--row1', `${Math.floor(Math.min(rows * 0.42, 110))}px`);
-  box.style.setProperty('--row2', `${Math.floor(Math.min(rows * 0.58, 150))}px`);
+  box.style.setProperty('--row1', `${Math.floor(Math.min(rows * 0.58, 150))}px`);
+  box.style.setProperty('--row2', `${Math.floor(Math.min(rows * 0.42, 110))}px`);
 }
 const myPad = () => pads[net ? lobby.me : 0];
 for (const button of document.querySelectorAll('#touch [data-act]')) {
@@ -270,7 +270,7 @@ for (const button of document.querySelectorAll('#touch [data-act]')) {
 $('t-menu').onclick = () => togglePause();
 
 // Finger on the field: drag sideways to move a column at a time, drag down to drop fast,
-// tap to turn (right half of the screen clockwise, left half the other way).
+// tap to turn (always the same way, like the turn button).
 let gesture = null;
 canvas.addEventListener('pointerdown', (e) => {
   if (!match || !myPad() || !$('pause').hidden || !$('end').hidden) return;
@@ -310,7 +310,7 @@ const endGesture = (e) => {
   const [t1, y1] = g.trail[0];
   const speed = (e.clientY - y1) / Math.max(1, now - t1);
   if (dy > renderer.cellPx * 1.5 && speed > 0.7 && dy > Math.abs(e.clientX - g.x0)) pad.press('hard', true);
-  else if (!g.moved && dt < 350) pad.press(e.clientX > innerWidth / 2 ? 'cw' : 'ccw', true);
+  else if (!g.moved && dt < 350) pad.press('cw', true);
 };
 canvas.addEventListener('pointerup', endGesture);
 canvas.addEventListener('pointercancel', (e) => { if (gesture?.soft) myPad()?.press('down', false); gesture = null; });

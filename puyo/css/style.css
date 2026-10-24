@@ -579,6 +579,10 @@ body.touch .keys {
   opacity: 0.8;
 }
 
+#touch .cluster button.turn {
+  font-size: calc(var(--btn) * 0.42);
+}
+
 #touch .cluster button.hard {
   background: rgba(255, 170, 30, 0.28);
   border-color: rgba(255, 207, 58, 0.6);

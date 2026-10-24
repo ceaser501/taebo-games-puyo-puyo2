@@ -20,17 +20,17 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Two thumbs: moving on the left, turning and dropping on the right. -->
+  <!-- Two thumbs: ◀ ▶ with ▼ under them on the left; one turn button (tap again to keep
+       turning) with the hard drop under it on the right. -->
   <div id="touch" hidden>
     <div class="cluster">
-      <button type="button" class="wide" data-act="down" aria-label="빨리 내리기">▼<small>빨리</small></button>
       <button type="button" data-act="left" aria-label="왼쪽">◀</button>
       <button type="button" data-act="right" aria-label="오른쪽">▶</button>
+      <button type="button" class="wide" data-act="down" aria-label="빨리 내리기">▼<small>빨리</small></button>
     </div>
     <div class="cluster">
+      <button type="button" class="wide turn" data-act="cw" aria-label="돌리기">⟳<small>돌리기</small></button>
       <button type="button" class="wide hard" data-act="hard" aria-label="바로 내리기">⤓<small>바로 내리기</small></button>
-      <button type="button" data-act="ccw" aria-label="왼쪽으로 돌리기">⟲</button>
-      <button type="button" data-act="cw" aria-label="오른쪽으로 돌리기">⟳</button>
     </div>
     <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
   </div>
