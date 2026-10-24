@@ -139,14 +139,14 @@ export class Renderer {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    // The touch buttons are one row along the bottom: ◀ ▶ ▼ on the left, ⟳ ⤓ on the right.
+    // The touch buttons are one row along the bottom: ◀ ▶ ▼ on the left, ⟳ and the hard drop on the right.
     // Upright, the game sits above that row at full width and the characters fill whatever
     // height is left; on its side, the 4:3 screen is centred and the row runs under its margins.
     this.tall = h > w * 1.15;
     let btn = 0;
     if (this.tall) {
       // Five buttons over the width: 24 side padding, 20 between the left three, at least 16
-      // between the groups, and the wider gap between ⟳ and ⤓ (a quarter button). They are a
+      // between the groups, and the wider gap between ⟳ and the hard drop (a quarter button). They are a
       // little taller than wide, for thumbs.
       btn = this.touch ? Math.floor(Math.min((w - 24 - 20 - 16 - 10) / 5.25, 84)) : 0;
       const room = btn ? Math.round(btn * 1.2) + 26 : 0;
