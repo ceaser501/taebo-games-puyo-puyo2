@@ -2,7 +2,7 @@
 // the first tap). The sound banks have no names, so which clip is which was picked by length and
 // shape: the seven chain pops are PUYO01_02-08, rising in pitch. `?sfx` on the page lists every
 // clip to listen to.
-import { sfxUrl, musicUrl } from './assets.js';
+import { sfxUrl, musicUrl, bgmUrl } from './assets.js';
 import { parseMidi, MidiPlayer } from './midi.js';
 
 const SFX = {
@@ -24,6 +24,8 @@ const voice = (id, kind) => `VOIC${String(id).padStart(2, '0')}${kind}_00`;
 
 const KEY = 'puyo-music';
 const MUSIC_VOLUME = 0.32;
+// The OGG songs are mastered much louder than the synth plays the MIDI ones.
+const OGG_VOLUME = 0.55;
 
 export class Sound {
   constructor() {
@@ -36,6 +38,10 @@ export class Sound {
     this.musicGain.gain.value = MUSIC_VOLUME;
     this.musicGain.connect(this.ctx.destination);
     this.player = new MidiPlayer(this.ctx, this.musicGain);
+    this.oggGain = this.ctx.createGain();
+    this.oggGain.gain.value = OGG_VOLUME;
+    this.oggGain.connect(this.musicGain);
+    this.track = null; // the OGG song playing
     this.buffers = {};
     this.songs = {};
     try { this.musicOn = localStorage.getItem(KEY) !== 'off'; } catch { this.musicOn = true; }
@@ -50,7 +56,7 @@ export class Sound {
 
   resume() {
     if (this.ctx.state === 'suspended') this.ctx.resume();
-    if (this.wanted && this.musicOn && !this.player.playing) this.playSong(this.wanted);
+    if (this.wanted && this.musicOn && !this.player.playing && !this.track) this.playSong(this.wanted);
   }
 
   buffer(id) {
@@ -107,22 +113,55 @@ export class Sound {
     return this.songs[id];
   }
 
+  // entry: { id, loop } for a MIDI song, { id, ogg: true, fallback } for an OGG one. An OGG
+  // the browser can't decode plays its MIDI fallback instead.
   async playSong(entry) {
     this.wanted = entry;
     if (!this.musicOn || this.ctx.state !== 'running') return;
+    if (entry.ogg) {
+      const buf = await this.oggBuffer(entry.id);
+      if (this.wanted !== entry) return;
+      if (!buf) { if (entry.fallback) this.playSong(entry.fallback); return; }
+      if (this.track?.entry === entry) return;
+      this.stopTracks();
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(this.oggGain);
+      src.start();
+      this.track = { src, entry };
+      return;
+    }
     const song = await this.song(entry.id);
-    if (song && this.wanted === entry) this.player.play(song, entry.loop);
+    if (song && this.wanted === entry) {
+      this.stopTracks();
+      this.player.play(song, entry.loop);
+    }
+  }
+
+  oggBuffer(id) {
+    this.songs[`ogg:${id}`] ??= fetch(bgmUrl(id))
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((b) => b && new Promise((res) => this.ctx.decodeAudioData(b, res, () => res(null))))
+      .catch(() => null);
+    return this.songs[`ogg:${id}`];
+  }
+
+  stopTracks() {
+    this.player.stop();
+    try { this.track?.src.stop(); } catch { /* already stopped */ }
+    this.track = null;
   }
 
   stopMusic() {
     this.wanted = null;
-    this.player.stop();
+    this.stopTracks();
   }
 
   toggleMusic() {
     this.musicOn = !this.musicOn;
     try { localStorage.setItem(KEY, this.musicOn ? 'on' : 'off'); } catch { /* storage blocked */ }
-    if (!this.musicOn) this.player.stop();
+    if (!this.musicOn) this.stopTracks();
     else if (this.wanted) this.playSong(this.wanted);
     return this.musicOn;
   }

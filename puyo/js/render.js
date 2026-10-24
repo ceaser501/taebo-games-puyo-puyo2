@@ -50,6 +50,7 @@ function layout(tall, me, extra = 0, pad = 16) {
   L.next[o] = null;
   L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
   L.menu = { x: BAR.x + 6, y: BAR.y + 8, size: 40 };
+  L.emo = { x: BAR.x + BAR.w - 46, y: BAR.y + 8, size: 40 };
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
     const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
@@ -117,6 +118,11 @@ const LINES = {
 };
 const pickLine = (list) => list[Math.floor(Math.random() * list.length)];
 const BUBBLE_TIME = 1.5; // seconds a speech bubble stays
+// From this chain step on, the line plays as a cut-in over the character's half of the strip
+// under the fields, so it never covers the play.
+const CUTIN_CHAIN = 3;
+const CUTIN_TIME = 1.4;
+const TOAST_TIME = 2.8; // "achievement" ribbon over the character
 
 export class Renderer {
   constructor(canvas, pictures, manifest) {
@@ -129,6 +135,7 @@ export class Renderer {
     this.particles = [];
     this.rings = []; // original pop bursts (classic look)
     this.memo = [{}, {}];
+    this.fx = [{}, {}]; // per board: shake, flash, cut-in, toast
     this.sprites = {};
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -182,9 +189,8 @@ export class Renderer {
       this.oy = (h - SCREEN.h * this.scale) / 2;
       btn = Math.floor(Math.max(44, Math.min((this.ox - 24 - 20) / 3, 70)));
     }
-    const m = this.layout.menu;
-    const menu = m && { x: this.ox + m.x * this.scale, y: this.oy + m.y * this.scale, size: m.size * this.scale };
-    this.controls = { tall: this.tall, btn, menu };
+    const place = (m) => m && { x: this.ox + m.x * this.scale, y: this.oy + m.y * this.scale, size: m.size * this.scale };
+    this.controls = { tall: this.tall, btn, menu: place(this.layout.menu), emo: place(this.layout.emo) };
     this.onLayout?.(this.controls);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
@@ -371,6 +377,33 @@ export class Renderer {
     return w;
   }
 
+  // ---- effects ----------------------------------------------------------------------------
+
+  // A board event (from the match): a chain step shakes its field harder the longer the chain and
+  // flashes it from 3 on; a load of nuisance landing shakes the field it lands on; an all clear
+  // flashes gold.
+  onEvent(i, e, t) {
+    const fx = this.fx[i];
+    if (e.type === 'pop') {
+      fx.shake = { t, amp: Math.min(1 + e.chain * 1.4, 11) };
+      if (e.chain >= CUTIN_CHAIN && this.tall) fx.busyUntil = t + CUTIN_TIME; // a toast waits for the cut-in
+      if (e.chain >= 3) fx.flash = { t, a: Math.min(0.1 + e.chain * 0.05, 0.45), colour: '#fff' };
+    } else if (e.type === 'garbage' && e.n >= 6) {
+      fx.shake = { t, amp: Math.min(3 + e.n * 0.2, 9) };
+    } else if (e.type === 'allClear') {
+      fx.flash = { t, a: 0.5, colour: '#ffd84a' };
+    }
+  }
+
+  // A line over a character (an emote, or the computer answering one), up a little longer.
+  say(i, text, t) {
+    const m = (this.memo[i].fig ??= { chain: 0, warn: 0 });
+    m.bubble = { text, t0: t, dur: 2.4 };
+  }
+
+  // The achievement ribbon over a character, after the cut-in when there is one.
+  toast(i, text, t) { this.fx[i].toast = { text, t: Math.max(t, this.fx[i].busyUntil ?? 0) }; }
+
   // ---- frame ------------------------------------------------------------------------------
 
   // match: { boards, players: [{ name, char, wins }], state, message, result, time }
@@ -394,9 +427,19 @@ export class Renderer {
     match.boards.forEach((b, i) => {
       const at = this.layout.fields[i], home = FIELDS[i];
       ctx.save();
-      ctx.translate(at.x - home.x * at.s, at.y - home.y * at.s);
+      // Shaking: a quick wobble that dies out in a third of a second.
+      const sh = this.fx[i].shake, st = sh ? match.time - sh.t : 1;
+      const wob = st < 0.35 ? sh.amp * (1 - st / 0.35) : 0;
+      ctx.translate(at.x - home.x * at.s + Math.sin(match.time * 97) * wob * 0.6, at.y - home.y * at.s + Math.cos(match.time * 83) * wob * 0.4);
       ctx.scale(at.s, at.s);
       this.drawField(ctx, b, i, match);
+      const fl = this.fx[i].flash, ft = fl ? match.time - fl.t : 1;
+      if (ft < 0.25) {
+        ctx.globalAlpha = fl.a * (1 - ft / 0.25);
+        ctx.fillStyle = fl.colour;
+        ctx.fillRect(home.x, home.y, FIELD_W, FIELD_H);
+        ctx.globalAlpha = 1;
+      }
       this.drawParticles(ctx, i);
       this.drawResult(ctx, i, match);
       ctx.restore();
@@ -519,7 +562,9 @@ export class Renderer {
       const life = 1 - b.chainShow / 80;
       const cx = fx + Math.min(W - 1.5, Math.max(1.5, b.chainAt.x + 0.5)) * CELL;
       const cy = fy + (b.chainAt.y - 1) * CELL - life * 28;
-      const pop = life < 0.15 ? 0.6 + (life / 0.15) * 0.55 : life < 0.25 ? 1.15 - ((life - 0.15) / 0.1) * 0.15 : 1;
+      // Longer chains pop bigger.
+      const big = 1 + Math.min(b.lastChain - 1, 6) * 0.12;
+      const pop = big * (life < 0.15 ? 0.6 + (life / 0.15) * 0.55 : life < 0.25 ? 1.15 - ((life - 0.15) / 0.1) * 0.15 : 1);
       const alpha = life > 0.8 ? (1 - life) / 0.2 : 1;
       if (this.classic) {
         // The original: the count in the big font, then "연쇄".
@@ -531,7 +576,11 @@ export class Renderer {
         this.glyphs(ctx, n, -w / 2, -16, 'big');
         this.ryCut(ctx, 'ren', -w / 2 + n.length * 16 + 2, 2);
         ctx.restore();
-      } else this.label(ctx, `${b.lastChain}연쇄!`, cx, cy, 22 * pop, { alpha });
+      } else {
+        // Yellow, then orange, then red as the chain grows.
+        const heat = b.lastChain >= 6 ? ['#fff0f0', '#ff6a6a', '#c0102a'] : b.lastChain >= 4 ? ['#fff4e0', '#ffae3a', '#d05a00'] : undefined;
+        this.label(ctx, `${b.lastChain}연쇄!`, cx, cy, 22 * pop, { alpha, colours: heat });
+      }
     }
     if (b.allClearShow > 0) {
       const life = 1 - b.allClearShow / 120;
@@ -681,10 +730,16 @@ export class Renderer {
         if (L.face[i]) this.drawFace(ctx, b, i, L.face[i], match);
         const f = L.figure[i];
         if (f) {
-          this.drawFigure(ctx, b, i, f, match);
+          const cut = this.fx[i].cutin;
+          if (cut && this.tall && match.time - cut.t < CUTIN_TIME) {
+            this.react(b, i, match);
+            this.drawCutin(ctx, i, f, cut, match);
+          } else {
+            this.drawFigure(ctx, b, i, f, match);
+            // Above the tallest pose and the highest hop.
+            if (!this.drawToast(ctx, i, f, match)) this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) * 1.3 - 4, match);
+          }
           if (f.name) this.drawName(ctx, i, f.x, f.y + 10, match);
-          // Above the tallest pose and the highest hop.
-          this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) * 1.3 - 4, match);
         }
       }
     });
@@ -698,7 +753,10 @@ export class Renderer {
     const arle = match.players[i].char === 0;
     const say = (text) => { m.bubble = { text, t0: t }; };
     const chainNow = b.chainShow > 0 ? b.lastChain : 0;
-    if (chainNow && chainNow !== m.chain) say(arle ? LINES.arleChain[Math.min(chainNow, 7) - 1] : LINES.chain[Math.min(chainNow, 7) - 1]);
+    if (chainNow && chainNow !== m.chain) {
+      const line = arle ? LINES.arleChain[Math.min(chainNow, 7) - 1] : LINES.chain[Math.min(chainNow, 7) - 1];
+      if (chainNow >= CUTIN_CHAIN && this.tall && this.layout.figure[i]) { this.fx[i].cutin = { text: line, n: chainNow, t }; m.bubble = null; } else say(line);
+    }
     m.chain = chainNow;
     const warn = b.warning ?? b.pending ?? 0;
     if (warn - m.warn >= 6) { m.hitAt = t; say(pickLine(LINES.hurt)); }
@@ -717,10 +775,10 @@ export class Renderer {
     const m = this.memo[i].fig;
     const bub = m?.bubble;
     if (!bub) return;
-    const age = match.time - bub.t0;
-    if (age > BUBBLE_TIME || age < 0) { m.bubble = null; return; }
+    const age = match.time - bub.t0, life = bub.dur ?? BUBBLE_TIME;
+    if (age > life || age < 0) { m.bubble = null; return; }
     const pop = age < 0.12 ? 0.6 + (age / 0.12) * 0.4 : 1;
-    const alpha = age > BUBBLE_TIME - 0.3 ? (BUBBLE_TIME - age) / 0.3 : 1;
+    const alpha = age > life - 0.3 ? (life - age) / 0.3 : 1;
     ctx.save();
     ctx.font = `800 12px ${FONT}`;
     const tw = ctx.measureText(bub.text).width, bw = tw + 16, bh = 22;
@@ -751,18 +809,149 @@ export class Renderer {
     ctx.restore();
   }
 
+  // The name, after the title worn (in gold) when there is one; the rounds won under it.
   drawName(ctx, i, x, y, match) {
     const p = match.players[i];
-    ctx.font = `800 11px ${FONT}`;
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.strokeText(p.name, x, y, 78);
+    const tag = p.title && !this.framed ? `[${p.title}] ` : '';
+    ctx.font = `800 10px ${FONT}`;
+    const tw = tag ? ctx.measureText(tag).width : 0;
+    ctx.font = `800 11px ${FONT}`;
+    const nw = ctx.measureText(p.name).width;
+    const k = Math.min(1, (tag ? 150 : 78) / (tw + nw)); // squeeze to fit the half
+    let left = x - ((tw + nw) * k) / 2;
+    ctx.textAlign = 'left';
+    if (tag) {
+      ctx.font = `800 10px ${FONT}`;
+      ctx.strokeText(tag, left, y, tw * k);
+      ctx.fillStyle = '#ffd84a';
+      ctx.fillText(tag, left, y, tw * k);
+      left += tw * k;
+      ctx.font = `800 11px ${FONT}`;
+    }
+    ctx.strokeText(p.name, left, y, nw * k);
     ctx.fillStyle = '#fff';
-    ctx.fillText(p.name, x, y, 78);
+    ctx.fillText(p.name, left, y, nw * k);
     this.drawWins(ctx, p, x, y + 16, match);
+  }
+
+  // A big chain's cut-in over the character's half of the strip: a slanted band in the
+  // player's colour with speed lines, the portrait sliding in from the outside, the spell or
+  // line and the chain count beside it. Slides in, holds, slides out.
+  drawCutin(ctx, i, f, cut, match) {
+    const age = match.time - cut.t;
+    const inT = Math.min(1, age / 0.16), outT = Math.max(0, (age - (CUTIN_TIME - 0.22)) / 0.22);
+    const left = f.x < this.layout.screen.w / 2; // which side of the strip
+    const dir = left ? -1 : 1; // the outside
+    const half = 160, x0 = f.x - half / 2, top = f.y - Math.max(f.h, 52) - 4, h = Math.max(f.h, 52) + 2;
+    const slide = (1 - ease(inT)) * half * dir + ease(outT) * half * -dir;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0 - 10, top - 4, half + 20, h + 8);
+    ctx.clip();
+    ctx.translate(slide, 0);
+    ctx.globalAlpha = 1 - outT * 0.6;
+    // Band.
+    const skew = 14;
+    ctx.beginPath();
+    ctx.moveTo(x0 + skew, top); ctx.lineTo(x0 + half + 8, top); ctx.lineTo(x0 + half - skew, top + h); ctx.lineTo(x0 - 8, top + h);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(x0, top, x0 + half, top + h);
+    const col = PLAYER_COLOURS[i];
+    g.addColorStop(0, 'rgba(10,8,30,0.92)'); g.addColorStop(0.5, col); g.addColorStop(1, 'rgba(10,8,30,0.92)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Speed lines running towards the inside.
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 9; k++) {
+      const ly = top + 5 + ((k * 37) % (h - 10));
+      const run = ((match.time * 420 + k * 53) % (half + 60)) - 30;
+      const lx = left ? x0 + run : x0 + half - run;
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx - dir * 22, ly); ctx.stroke();
+    }
+    ctx.restore();
+    // Portrait on the outside.
+    const face = this.faces?.[i];
+    const fh = h - 8, fw = fh * (80 / 56);
+    const fx = left ? x0 + 6 : x0 + half - 6 - fw;
+    if (face) {
+      ctx.save();
+      roundRect(ctx, fx, top + 4, fw, fh, 8);
+      ctx.clip();
+      ctx.fillStyle = '#111';
+      ctx.fillRect(fx, top + 4, fw, fh);
+      if (!left) { ctx.translate(fx * 2 + fw, 0); ctx.scale(-1, 1); }
+      ctx.drawImage(face.img, face.x, face.y, face.w, Math.min(face.h, face.w * 0.7), fx, top + 4, fw, fh);
+      ctx.restore();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, fx, top + 4, fw, fh, 8);
+      ctx.stroke();
+    }
+    // The line and the count on the inside.
+    const tx = left ? fx + fw + 6 : x0 + 4, tw = half - fw - 16;
+    const pop = 0.7 + 0.3 * ease(Math.min(1, age / 0.25));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.font = `900 ${Math.round(16 * pop)}px ${FONT}`;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(cut.text, tx + tw / 2, top + h * 0.42, tw);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(cut.text, tx + tw / 2, top + h * 0.42, tw);
+    ctx.font = `900 12px ${FONT}`;
+    ctx.lineWidth = 3;
+    ctx.strokeText(`${cut.n}연쇄!`, tx + tw / 2, top + h * 0.78, tw);
+    ctx.fillStyle = cut.n >= 6 ? '#ff7a7a' : '#ffd84a';
+    ctx.fillText(`${cut.n}연쇄!`, tx + tw / 2, top + h * 0.78, tw);
+    ctx.restore();
+  }
+
+  // "업적 달성" ribbon over a character while it lasts; false when there is none.
+  drawToast(ctx, i, f, match) {
+    const ts = this.fx[i].toast;
+    if (!ts) return false;
+    const age = match.time - ts.t;
+    if (age < 0) return false;
+    if (age > TOAST_TIME) { this.fx[i].toast = null; return false; }
+    const pop = age < 0.15 ? 0.6 + (age / 0.15) * 0.4 : 1;
+    const alpha = age > TOAST_TIME - 0.4 ? (TOAST_TIME - age) / 0.4 : 1;
+    const head = '🏆 업적 달성!', text = `[${ts.text}]`;
+    ctx.save();
+    ctx.font = `800 11px ${FONT}`;
+    const w = Math.min(156, Math.max(ctx.measureText(head).width, ctx.measureText(text).width + 4) + 18), h = 34;
+    const sw = this.layout.screen.w;
+    const cx = Math.min(sw - w / 2 - 4, Math.max(w / 2 + 4, f.x)), cy = f.y - (f.h ?? 93) * 1.3 - 4 - h / 2;
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx, cy);
+    ctx.scale(pop, pop);
+    const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    g.addColorStop(0, '#fff3b0'); g.addColorStop(1, '#ffb52e');
+    ctx.fillStyle = g;
+    ctx.strokeStyle = '#7a4a00';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, -w / 2, -h / 2, w, h, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#5a3200';
+    ctx.font = `800 10px ${FONT}`;
+    ctx.fillText(head, 0, -7, w - 10);
+    ctx.font = `900 12px ${FONT}`;
+    ctx.fillText(text, 0, 8, w - 10);
+    ctx.restore();
+    return true;
   }
 
   drawWins(ctx, p, x, y, match) {
@@ -910,7 +1099,7 @@ export class Renderer {
         ctx.fill();
       }
     }
-    // Clear of the menu button at the bar's left end (up to x 54).
+    // Clear of the menu button at the bar's left end and the emote button at its right end.
     const gap = this.classic ? 64 : 54; // half the time's width and a little
     this.hudSide(ctx, match, me, mid - gap, 'right');
     this.hudSide(ctx, match, other, mid + gap, 'left');
@@ -1036,6 +1225,7 @@ export class Renderer {
   // Forget per-board animation state between rounds.
   reset() {
     this.memo = [{}, {}];
+    this.fx = [{}, {}];
     this.particles = [];
     this.rings = [];
   }

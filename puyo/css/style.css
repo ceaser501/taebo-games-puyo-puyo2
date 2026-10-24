@@ -744,6 +744,14 @@ body.touch .keys {
   color: var(--accent);
 }
 
+#home-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd84a;
+}
+
+#home-title:empty { display: none; }
+
 .home-name {
   display: flex;
   flex-direction: column;
@@ -943,6 +951,12 @@ body.touch .keys {
 
 .lobby-rounds select { flex: 1; }
 
+.lobby-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 #lobby-code-box {
   flex-wrap: wrap;
 }
@@ -959,6 +973,7 @@ body.touch .keys {
 /* ---- ranking ---- */
 
 #rank-list,
+#achieve-list,
 #end-results {
   list-style: none;
   margin: 0;
@@ -971,6 +986,7 @@ body.touch .keys {
 }
 
 #rank-list li,
+#achieve-list li,
 #end-results li {
   display: grid;
   grid-template-columns: 34px 1fr auto;
@@ -983,6 +999,7 @@ body.touch .keys {
 }
 
 #rank-list li.me,
+#achieve-list li.got,
 #end-results li.won {
   background: rgba(255, 207, 58, 0.14);
 }
@@ -995,6 +1012,7 @@ body.touch .keys {
 }
 
 #rank-list .pos,
+#achieve-list .pos,
 #end-results .medal {
   grid-area: pos;
   text-align: center;
@@ -1002,9 +1020,13 @@ body.touch .keys {
 }
 
 #rank-list b,
+#achieve-list b,
 #end-results b { grid-area: name; }
 
+#achieve-list li:not(.got) { opacity: 0.55; }
+
 #rank-list em,
+#achieve-list em,
 #end-results em {
   grid-area: pts;
   font-style: normal;
@@ -1014,6 +1036,7 @@ body.touch .keys {
 }
 
 #rank-list small,
+#achieve-list small,
 #end-results small {
   grid-area: sub;
   font-size: 11px;
@@ -1034,6 +1057,57 @@ body.touch .keys {
 
 /* Opened from other panels (results, lobby, home), so they sit on top of them. */
 #ranking,
+#achieve,
 #chars {
   z-index: 4;
+}
+
+/* ---- emotes ---- */
+
+#touch #t-emo {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(10px + env(safe-area-inset-left));
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 16, 40, 0.6);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  pointer-events: auto;
+}
+
+#touch #t-emo.wait { opacity: 0.4; }
+
+#emo-pick {
+  position: fixed;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(14, 12, 34, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#emo-pick[hidden] { display: none; }
+
+#emo-pick button {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#end-achieve {
+  text-align: center;
+  color: #ffd84a;
+  font-weight: 800;
 }

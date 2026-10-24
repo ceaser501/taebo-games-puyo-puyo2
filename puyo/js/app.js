@@ -5,6 +5,7 @@ import { Renderer } from './render.js';
 import { Pad, KEYMAPS } from './pad.js';
 import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking } from './net.js';
 import { randomSeed } from './rng.js';
+import * as achieve from './achieve.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -34,6 +35,21 @@ const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* not remembered */ } },
 };
+
+// ---- music modes ---------------------------------------------------------------------------
+// 오락실 모드: the original MIDI songs. 전장 모드: the OGG songs (assets/p2/bgm), each falling back
+// to an original song where the browser can't play OGG.
+
+const oggSongs = {};
+const oggSong = (id, fallback) => (oggSongs[id] ??= { id, ogg: true, fallback });
+const hasOgg = () => !!manifest?.bgm?.length;
+const bgmMode = () => (hasOgg() && $('bgm').value === 'battle' ? 'battle' : 'arcade');
+function gameSongs(mode) {
+  const arcade = manifest.music.filter((s) => s.loop && s.id.startsWith('PUYO2'));
+  if (mode !== 'battle' || !hasOgg()) return arcade;
+  return manifest.bgm.map((id, k) => oggSong(id, arcade[k % arcade.length]));
+}
+const BGM_NAMES = { arcade: '오락실 모드', battle: '전장 모드' };
 
 function ensureSound() {
   sound ??= new Sound();
@@ -103,6 +119,8 @@ async function init() {
   $('player-name').value = store.get('puyo-name', '');
   $('skin').value = store.get('puyo-skin', 'classic');
   $('rounds').value = store.get('puyo-rounds', '2');
+  $('bgm').value = store.get('puyo-bgm', 'arcade');
+  for (const el of document.querySelectorAll('.bgm-pick')) el.hidden = !hasOgg();
   $('opponent').value = store.get('puyo-opponent', 'normal');
   buildRoster();
   buildCharGrid();
@@ -129,8 +147,9 @@ function pickSetup() {
   const other = pick.cpu === 'random' ? randomChar(pick.me) : pick.cpu;
   return {
     toWin: Number($('rounds').value),
+    bgm: bgmMode(),
     players: [
-      { name, char: pick.me, cpu: null },
+      { name, char: pick.me, cpu: null, title: cpu ? achieve.title() : '' },
       { name: cpu ? NAMES[other] ?? '컴퓨터' : '2P', char: other, cpu },
     ],
   };
@@ -159,6 +178,7 @@ async function start(setup = pickSetup(), online = null) {
     toWin: setup.toWin,
     net: online,
     onEnd: (winner) => { if (match === m) setTimeout(() => showEnd(winner), 1200); },
+    onFx: (i, e) => onFx(m, i, e),
   });
   match = m;
   hold.me = hold.friend = false;
@@ -168,7 +188,7 @@ async function start(setup = pickSetup(), online = null) {
   $('menu').hidden = true;
   $('end').hidden = true;
   setTouch(touchDevice);
-  const songs = manifest.music.filter((s) => s.loop && s.id.startsWith('PUYO2'));
+  const songs = gameSongs(setup.bgm);
   sound.playSong(songs[Math.floor(Math.random() * songs.length)]);
   $('start').disabled = false;
   $('start').textContent = '시작';
@@ -186,6 +206,11 @@ function showEnd(winner) {
   $('end-results').hidden = true;
   $('end-rank').hidden = !net;
   $('end-saved').textContent = net ? '랭킹에 기록하는 중…' : '';
+  // My record for the achievements (not for two players on one keyboard).
+  const fresh = me != null ? achieve.matchDone({ won: winner === me, online: !!net, cpu: match.players[1].cpu }) : [];
+  $('end-achieve').hidden = !fresh.length;
+  $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((a) => `[${a.title}]`).join(' ')}` : '';
+  closeEmo();
   $('end').hidden = false;
   setTouch(false);
   if (net && lobby?.host) finishOnline(winner);
@@ -260,8 +285,11 @@ function toMenu() {
 }
 
 // The title song plays on the intro, home, menu and lobby screens.
+// Which music: 'arcade' (the original songs) or 'battle' (the OGG songs); in the lobby the room's.
 function playMenuSong() {
-  const song = manifest?.music.find((m) => m.id === 'PUYO2_00') ?? manifest?.music[0];
+  const title = manifest?.music.find((m) => m.id === 'PUYO2_00') ?? manifest?.music[0];
+  const mode = lobby && !$('lobby').hidden ? lobby.bgm : bgmMode();
+  const song = mode === 'battle' && manifest?.bgm?.length ? oggSong(manifest.bgm[0], title) : title;
   if (song && sound?.wanted !== song) sound?.playSong(song);
 }
 
@@ -285,6 +313,7 @@ async function showHome() {
   $('home-name').value = $('player-name').value;
   $('home-figure').style.backgroundImage = figureUrl(pick.me);
   $('home-char').textContent = charName(pick.me);
+  $('home-title').textContent = achieve.title() ? `[${achieve.title()}]` : '';
   const name = $('home-name').value.trim();
   for (const id of ['home-rank', 'home-points', 'home-record', 'home-chain']) $(id).textContent = '-';
   if (!name) return;
@@ -380,6 +409,26 @@ async function showRanking() {
   }
 }
 $('rank-open').onclick = showRanking;
+
+// Achievements: all of them, the earned ones lit, the title worn marked.
+function showAchieve() {
+  const list = $('achieve-list'), worn = achieve.title();
+  list.innerHTML = '';
+  for (const a of achieve.ACHIEVEMENTS) {
+    const got = achieve.earned(a.id);
+    const li = document.createElement('li');
+    li.className = got ? 'got' : '';
+    li.innerHTML = '<span class="pos"></span><b></b><em></em><small></small>';
+    li.querySelector('.pos').textContent = got ? '🏆' : '🔒';
+    li.querySelector('b').textContent = `[${a.title}]`;
+    li.querySelector('em').textContent = got && a.title === worn ? '착용 중' : '';
+    li.querySelector('small').textContent = a.desc + (got ? ` · ${new Date(got).toLocaleDateString('ko-KR')}` : '');
+    list.append(li);
+  }
+  $('achieve').hidden = false;
+}
+$('home-achieve').onclick = showAchieve;
+$('achieve-close').onclick = () => { $('achieve').hidden = true; };
 $('home-rank-open').onclick = showRanking;
 $('end-rank').onclick = showRanking;
 $('rank-close').onclick = () => { $('ranking').hidden = true; };
@@ -416,12 +465,15 @@ function setTouch(on) {
 }
 
 // The renderer picks the button size from the room it leaves for the row of buttons.
-function placeControls({ btn, menu }) {
+function placeControls({ btn, menu, emo }) {
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
-  // Upright the menu button sits at the left end of the status bar; otherwise in the top corner.
-  const b = $('t-menu').style;
-  if (menu) Object.assign(b, { left: `${menu.x}px`, top: `${menu.y}px`, right: 'auto', width: `${menu.size}px`, height: `${menu.size}px` });
-  else Object.assign(b, { left: '', top: '', right: '', width: '', height: '' });
+  // Upright the menu and emote buttons sit at the ends of the status bar; otherwise in the top corners.
+  for (const [id, at] of [['t-menu', menu], ['t-emo', emo]]) {
+    const b = $(id).style;
+    if (at) Object.assign(b, { left: `${at.x}px`, top: `${at.y}px`, right: 'auto', width: `${at.size}px`, height: `${at.size}px` });
+    else Object.assign(b, { left: '', top: '', right: '', width: '', height: '' });
+  }
+  closeEmo();
 }
 const myPad = () => pads[net ? lobby.me : 0];
 for (const button of document.querySelectorAll('#touch [data-act]')) {
@@ -492,6 +544,87 @@ const endGesture = (e) => {
 canvas.addEventListener('pointerup', endGesture);
 canvas.addEventListener('pointercancel', () => { gesture = null; });
 
+// ---- effects outside the canvas ---------------------------------------------------------
+// Every board event: the renderer shakes and flashes; on my own board the phone buzzes (harder
+// for longer chains) and achievements are checked, a new one shown over my character.
+
+const myIndex = () => (net ? lobby?.me ?? 0 : match?.players[1].cpu ? 0 : null);
+let vibeOn = store.get('puyo-vibe', 'on') !== 'off';
+function buzz(pattern) {
+  if (vibeOn && touchDevice) try { navigator.vibrate?.(pattern); } catch { /* not allowed */ }
+}
+function syncVibeButtons() {
+  for (const id of ['menu-vibe', 'pause-vibe']) $(id).textContent = vibeOn ? '진동 켜짐' : '진동 꺼짐';
+}
+for (const id of ['menu-vibe', 'pause-vibe']) {
+  $(id).onclick = () => { vibeOn = !vibeOn; store.set('puyo-vibe', vibeOn ? 'on' : 'off'); syncVibeButtons(); buzz(30); };
+}
+syncVibeButtons();
+
+function onFx(m, i, e) {
+  if (m !== match) return;
+  renderer.onEvent(i, e, m.time);
+  if (i !== myIndex()) return;
+  let fresh = [];
+  switch (e.type) {
+    case 'pop':
+      buzz(e.chain >= 5 ? [50, 40, 90] : Math.min(14 + e.chain * 12, 70));
+      fresh = achieve.chainDone(e.chain);
+      break;
+    case 'garbage': if (e.n >= 6) buzz([30, 30, 50]); break;
+    case 'allClear': buzz([40, 40, 40, 40, 80]); fresh = achieve.allClear(); break;
+    case 'dead': buzz(220); break;
+  }
+  if (!fresh.length) return;
+  renderer.toast(i, fresh[fresh.length - 1].title, m.time);
+  m.players[i].title = achieve.title();
+  net?.send({ t: 'title', v: m.players[i].title });
+}
+
+// Quick reactions: 😀 at the right end of the status bar opens six; the one picked shows as a
+// speech bubble over my character, on my friend's screen too. The computer sometimes answers.
+const EMOTES = ['😆 ㅋㅋㅋ', '👍 좋아!', '🔥 덤벼라!', '🙏 제발~', '😅 미안!', '🤝 GG'];
+const CPU_REPLIES = ['흥!', '어림없어!', '😆 ㅋㅋㅋ', '두고 봐!', '🔥 덤벼라!'];
+const EMO_WAIT = 1500;
+let emoAt = 0;
+for (const [k, text] of EMOTES.entries()) {
+  const b = Object.assign(document.createElement('button'), { type: 'button', textContent: text });
+  b.onclick = () => sendEmo(k);
+  $('emo-pick').append(b);
+}
+function openEmo() {
+  if (!match || !$('pause').hidden || !$('end').hidden) return;
+  const r = $('t-emo').getBoundingClientRect(), box = $('emo-pick');
+  box.hidden = false;
+  const w = box.offsetWidth;
+  box.style.top = `${r.bottom + 6}px`;
+  box.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+}
+function closeEmo() { $('emo-pick').hidden = true; }
+$('t-emo').onclick = () => { if ($('emo-pick').hidden) openEmo(); else closeEmo(); };
+function sendEmo(k) {
+  closeEmo();
+  const now = performance.now(), i = myIndex() ?? 0;
+  if (!match || now - emoAt < EMO_WAIT) return;
+  emoAt = now;
+  $('t-emo').classList.add('wait');
+  setTimeout(() => $('t-emo').classList.remove('wait'), EMO_WAIT);
+  renderer.say(i, EMOTES[k], match.time);
+  sound?.sfx('select', 0, 0.5);
+  if (net) net.send({ t: 'emo', k });
+  else if (match.players[1 - i].cpu && Math.random() < 0.6) {
+    const m = match;
+    setTimeout(() => { if (match === m && !m.over) renderer.say(1 - i, CPU_REPLIES[Math.floor(Math.random() * CPU_REPLIES.length)], m.time); }, 700 + Math.random() * 900);
+  }
+}
+// From the friend: an emote or a new title.
+function friendFx(msg) {
+  const i = 1 - (lobby?.me ?? 0);
+  if (!match) return;
+  if (msg.t === 'emo' && EMOTES[msg.k]) renderer.say(i, EMOTES[msg.k], match.time);
+  if (msg.t === 'title') match.players[i].title = String(msg.v ?? '').slice(0, 12);
+}
+
 // In-game menu: the match waits while it is open. Online both games wait: each side tells the
 // other whether its menu is open (a few times, numbered so a late copy can't undo a newer one),
 // and the match runs only while neither is.
@@ -519,6 +652,7 @@ function openPause() {
   if (!match) return;
   $('pause-note').textContent = net ? '친구 게임도 함께 멈춰요. 나가면 친구와의 게임이 끝나요.' : '';
   $('pause').hidden = false;
+  closeEmo();
   pads.forEach((p) => p?.release());
   hold.me = true;
   applyHold();
@@ -612,6 +746,10 @@ function onlineName() {
 
 function showLobby() {
   match = null;
+  // A title won in the last match shows in the lobby too.
+  const t = achieve.title();
+  if (lobby.host) lobby.hostTitle = t;
+  else if (lobby.guestTitle !== t) { lobby.guestTitle = t; net?.send({ t: 'char', c: pick.me, title: t }); }
   setTouch(false);
   $('menu').hidden = true;
   $('end').hidden = true;
@@ -621,18 +759,20 @@ function showLobby() {
 
 function renderLobby() {
   $('lobby-code').textContent = lobby.code;
-  const seat = (el, name, char, state, me) => {
+  const seat = (el, name, char, state, me, title) => {
     el.classList.toggle('waiting', state !== 'joined');
     el.classList.toggle('mine', me);
     el.querySelector('.seat-figure').style.backgroundImage = state === 'joined' && char != null ? figureUrl(char) : 'none';
     el.querySelector('.seat-name').textContent = state === 'joined' ? `${name ?? ''}${me ? ' (나)' : ''}` : state === 'connecting' ? '들어오는 중…' : '기다리는 중…';
-    el.querySelector('.seat-char').textContent = state === 'joined' && char != null ? charName(char) : '';
+    el.querySelector('.seat-char').textContent = state === 'joined' && char != null ? charName(char) + (title ? ` · [${title}]` : '') : '';
   };
-  seat($('seat-host'), lobby.hostName ?? '방장', lobby.hostChar, lobby.hostName ? 'joined' : 'waiting', lobby.host);
-  seat($('seat-guest'), lobby.guestName, lobby.guestChar, lobby.guestState, !lobby.host);
+  seat($('seat-host'), lobby.hostName ?? '방장', lobby.hostChar, lobby.hostName ? 'joined' : 'waiting', lobby.host, lobby.hostTitle);
+  seat($('seat-guest'), lobby.guestName, lobby.guestChar, lobby.guestState, !lobby.host, lobby.guestTitle);
   $('lobby-rounds').value = String(lobby.toWin ?? 2);
   $('lobby-rounds').disabled = !lobby.host;
-  $('lobby-settings').textContent = lobby.host ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} (방장이 정해요)`;
+  $('lobby-bgm').value = lobby.bgm ?? 'arcade';
+  $('lobby-bgm').disabled = !lobby.host;
+  $('lobby-settings').textContent = lobby.host ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} · 배경음악: ${BGM_NAMES[lobby.bgm ?? 'arcade']} (방장이 정해요)`;
   $('lobby-start').hidden = !lobby.host;
   $('lobby-start').disabled = lobby.guestState !== 'joined';
 }
@@ -645,6 +785,13 @@ function myCharChanged() {
   renderLobby();
 }
 $('lobby-chars').onclick = openChars;
+$('lobby-bgm').onchange = () => {
+  if (!lobby?.host) return;
+  lobby.bgm = $('lobby-bgm').value;
+  net?.send(lobbyMsg());
+  playMenuSong();
+};
+$('bgm').onchange = () => { store.set('puyo-bgm', $('bgm').value); playMenuSong(); };
 $('lobby-rounds').onchange = () => {
   if (!lobby?.host) return;
   lobby.toWin = Number($('lobby-rounds').value);
@@ -657,7 +804,7 @@ function openNet() {
   Object.assign(hold, { me: false, friend: false, n: 0, seen: -1 });
   net = new Net({
     onIncoming: () => { lobby.guestState = 'connecting'; lobbyStatus('친구가 들어오고 있어요…'); renderLobby(); },
-    onConnected: () => { if (!lobby.host) net.send({ t: 'hello', name: lobby.guestName, char: lobby.guestChar }); },
+    onConnected: () => { if (!lobby.host) net.send({ t: 'hello', name: lobby.guestName, char: lobby.guestChar, title: lobby.guestTitle }); },
     onMessage: (msg) => { if (net) (lobby.host ? fromGuest : fromHost)(msg); },
     onClosed: () => friendLeft(),
     onLost: () => netBanner(lobby?.host ? '친구 연결이 잠시 끊겼어요. 다시 들어오길 기다리는 중…' : '방장과 연결이 잠시 끊겼어요. 다시 연결하는 중…'),
@@ -677,7 +824,7 @@ async function hostRoom() {
   netStatus('방을 만드는 중…');
   try {
     const code = await openNet().host();
-    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, guestState: 'waiting', toWin: Number($('rounds').value) };
+    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, hostTitle: achieve.title(), guestState: 'waiting', toWin: Number($('rounds').value), bgm: bgmMode() };
     netStatus('');
     showLobby();
     lobbyStatus('친구에게 방 번호를 알려 주거나 초대 링크를 보내세요.');
@@ -692,7 +839,7 @@ async function joinRoom() {
   const name = onlineName();
   if (!name) return;
   ensureSound();
-  lobby = { host: false, me: 1, code, guestName: name, guestChar: pick.me, guestState: 'joined' };
+  lobby = { host: false, me: 1, code, guestName: name, guestChar: pick.me, guestTitle: achieve.title(), guestState: 'joined' };
   showLobby();
   lobbyStatus('방에 연결하는 중…');
   try {
@@ -702,14 +849,17 @@ async function joinRoom() {
   }
 }
 
-const lobbyMsg = () => ({ t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, guest: lobby.guestName, guestChar: lobby.guestChar, toWin: lobby.toWin });
+const lobbyMsg = () => ({
+  t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, hostTitle: lobby.hostTitle, guest: lobby.guestName, guestChar: lobby.guestChar, guestTitle: lobby.guestTitle, toWin: lobby.toWin, bgm: lobby.bgm,
+});
 const sendNet = (msg) => net?.send(msg);
 
 function setupFrom(msg) {
   return {
     toWin: msg.toWin,
     frame: msg.frame,
-    players: [{ name: msg.host, char: msg.hostChar, cpu: null }, { name: msg.guest, char: msg.guestChar, cpu: null }],
+    bgm: msg.bgm === 'battle' ? 'battle' : 'arcade',
+    players: [{ name: msg.host, char: msg.hostChar, cpu: null, title: msg.hostTitle ?? '' }, { name: msg.guest, char: msg.guestChar, cpu: null, title: msg.guestTitle ?? '' }],
   };
 }
 
@@ -746,6 +896,7 @@ function fromGuest(msg) {
   if (msg.t === 'hello') {
     lobby.guestName = String(msg.name || '친구').slice(0, NAME_MAX);
     lobby.guestChar = ROSTER.includes(msg.char) ? msg.char : 0;
+    lobby.guestTitle = String(msg.title ?? '').slice(0, 12);
     lobby.guestState = 'joined';
     if (!$('lobby').hidden) renderLobby();
     lobbyStatus(`${lobby.guestName} 님이 들어왔어요. 게임 시작을 누르세요.`);
@@ -754,8 +905,10 @@ function fromGuest(msg) {
     return;
   }
   if (msg.t === 'pause') { friendHold(msg); return; }
+  if (msg.t === 'emo' || msg.t === 'title') { friendFx(msg); return; }
   if (msg.t === 'char') {
     if (ROSTER.includes(msg.c)) lobby.guestChar = msg.c;
+    if ('title' in msg) lobby.guestTitle = String(msg.title ?? '').slice(0, 12);
     if (!$('lobby').hidden) renderLobby();
     net.send(lobbyMsg());
     return;
@@ -768,15 +921,17 @@ async function fromHost(msg) {
   if (msg.t === 'bye') { friendLeft(); return; }
   if (msg.t === 'lobby') {
     // While playing, a lineup update only waits for the next visit to the lobby.
-    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined', toWin: msg.toWin });
+    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, hostTitle: msg.hostTitle ?? '', guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined', toWin: msg.toWin, bgm: msg.bgm ?? 'arcade' });
     if (match && $('end').hidden) return;
     const first = $('lobby').hidden;
     showLobby();
-    if (first) { playMenuSong(); lobbyStatus('캐릭터를 바꾸고 방장이 게임을 시작하길 기다려 주세요.'); }
+    playMenuSong();
+    if (first) lobbyStatus('캐릭터를 바꾸고 방장이 게임을 시작하길 기다려 주세요.');
     return;
   }
   if (msg.t === 'result') { showResult(msg.result); return; }
   if (msg.t === 'pause') { friendHold(msg); return; }
+  if (msg.t === 'emo' || msg.t === 'title') { friendFx(msg); return; }
   if (msg.t === 'go') {
     if (msg.id === joinedGo) return;
     joinedGo = msg.id;
@@ -912,4 +1067,4 @@ $('build').textContent = `버전 ${typeof BUILD_ID === 'undefined' ? 'dev' : BUI
 init();
 
 // For automated checks.
-window.puyo = { get match() { return match; }, get renderer() { return renderer; } };
+window.puyo = { get match() { return match; }, get renderer() { return renderer; }, get sound() { return sound; } };

@@ -34,7 +34,10 @@
       </button>
     </div>
     <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
+    <button type="button" id="t-emo" aria-label="이모티콘">😀</button>
   </div>
+  <!-- Quick reactions: a speech bubble over my character (and on my friend's screen online). -->
+  <div id="emo-pick" hidden></div>
 
   <div id="kakao" class="panel" hidden>
     <h1>브라우저로 열어 주세요</h1>
@@ -65,6 +68,7 @@
       <button type="button" class="home-figure" id="home-figure" aria-label="캐릭터 바꾸기"></button>
       <div class="home-info">
         <span id="home-char"></span>
+        <span id="home-title"></span>
         <label class="home-name"><span>내 이름</span><input id="home-name" type="text" maxlength="10" placeholder="이름을 넣어 주세요" autocomplete="nickname"></label>
         <dl id="home-stats">
           <div><dt>랭킹</dt><dd id="home-rank">-</dd></div>
@@ -75,6 +79,7 @@
         <div class="home-actions">
           <button type="button" id="home-chars" class="chip">캐릭터 바꾸기</button>
           <button type="button" id="home-rank-open" class="chip rank">랭킹</button>
+          <button type="button" id="home-achieve" class="chip">업적</button>
         </div>
       </div>
     </section>
@@ -117,13 +122,19 @@
           <option value="modern">깔끔하게 (모던)</option>
         </select>
       </label>
+      <label class="bgm-pick">배경음악
+        <select id="bgm">
+          <option value="arcade" selected>오락실 모드</option>
+          <option value="battle">전장 모드</option>
+        </select>
+      </label>
     </div>
     <button id="start" class="primary" disabled>불러오는 중…</button>
     <p id="notice"></p>
 
     <section id="online">
       <h2>친구와 온라인 대전 (1:1)</h2>
-      <p class="sub">방을 만들면 4자리 방 번호가 나와요. 대기실에서 캐릭터를 바꿀 수 있고, 이기면 랭킹 점수 +3점이에요.</p>
+      <p class="sub">방을 만들면 4자리 방 번호가 나와요. 위의 배경음악 모드로 방이 만들어지고(대기실에서도 바꿀 수 있어요), 대기실에서 캐릭터를 바꿀 수 있어요. 이기면 랭킹 점수 +3점이에요.</p>
       <div class="online-row">
         <button id="host" type="button" class="blue">방 만들기</button>
         <input id="code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="방 번호 4자리" autocomplete="off" spellcheck="false">
@@ -137,6 +148,7 @@
       <button type="button" id="rank-open" class="rank">랭킹</button>
       <button type="button" id="menu-full" hidden>전체화면으로 하기</button>
       <button type="button" id="menu-music">배경음악 켜짐 ♪</button>
+      <button type="button" id="menu-vibe">진동 켜짐</button>
     </div>
     <p id="ios-help" hidden>아이폰은 Safari 아래쪽 <b>공유</b> 버튼 → <b>홈 화면에 추가</b>로 저장한 뒤 홈 화면 아이콘으로 열면 전체화면으로 할 수 있어요.</p>
     <dl class="keys">
@@ -174,13 +186,21 @@
       </div>
     </div>
     <button type="button" id="lobby-chars">내 캐릭터 바꾸기</button>
-    <label class="lobby-rounds">승부
-      <select id="lobby-rounds">
-        <option value="1">1판</option>
-        <option value="2" selected>2선승</option>
-        <option value="3">3선승</option>
-      </select>
-    </label>
+    <div class="lobby-opts">
+      <label class="lobby-rounds">승부
+        <select id="lobby-rounds">
+          <option value="1">1판</option>
+          <option value="2" selected>2선승</option>
+          <option value="3">3선승</option>
+        </select>
+      </label>
+      <label class="lobby-rounds bgm-pick">배경음악
+        <select id="lobby-bgm">
+          <option value="arcade">오락실 모드</option>
+          <option value="battle">전장 모드</option>
+        </select>
+      </label>
+    </div>
     <p id="lobby-settings"></p>
     <p id="lobby-status"></p>
     <div class="lobby-actions">
@@ -194,6 +214,13 @@
     <div id="char-grid"></div>
     <p id="char-note" class="sub"></p>
     <button type="button" id="chars-done" class="primary">이 캐릭터로 할게요</button>
+  </div>
+
+  <div id="achieve" class="panel" hidden>
+    <h1>🏆 업적</h1>
+    <p class="sub">플레이하면 저절로 얻고, 얻은 것 중 가장 높은 칭호를 저절로 달아요. 칭호는 게임 중 내 캐릭터 이름 앞에 나와요.</p>
+    <ol id="achieve-list"></ol>
+    <button type="button" id="achieve-close">닫기</button>
   </div>
 
   <div id="ranking" class="panel" hidden>
@@ -215,12 +242,14 @@
     <button type="button" id="resume" class="primary">계속하기</button>
     <button type="button" id="pause-full" hidden>전체화면</button>
     <button type="button" id="pause-music">배경음악 켜짐 ♪</button>
+    <button type="button" id="pause-vibe">진동 켜짐</button>
     <button type="button" id="quit">게임 나가기</button>
   </div>
 
   <div id="end" class="panel" hidden>
     <h1 id="end-title"></h1>
     <p id="end-note"></p>
+    <p id="end-achieve" hidden></p>
     <ol id="end-results" hidden></ol>
     <p id="end-saved"></p>
     <button id="end-rank" class="rank" hidden>랭킹 보기</button>

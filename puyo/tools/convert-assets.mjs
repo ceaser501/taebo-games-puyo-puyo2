@@ -86,5 +86,17 @@ for (const f of files('').filter((n) => /\.MLK$/i.test(n)).sort()) {
   });
 }
 
+// Background music for the other music setting: the OGG files in BGM/ as they are.
+const bgmDir = path.join(root, 'BGM');
+manifest.bgm = [];
+if (fs.existsSync(bgmDir)) {
+  fs.mkdirSync(path.join(out, 'bgm'), { recursive: true });
+  for (const f of fs.readdirSync(bgmDir).filter((n) => /\.ogg$/i.test(n)).sort()) {
+    const id = path.basename(f, path.extname(f)).toUpperCase();
+    fs.copyFileSync(path.join(bgmDir, f), path.join(out, 'bgm', `${id}.ogg`));
+    manifest.bgm.push(id);
+  }
+}
+
 fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest));
-console.log(`Wrote ${pictures.length} pictures (${Object.keys(manifest.hd).length + manifest.faces.length} also 4x), ${clips} sounds, ${manifest.music.length} songs to ${out}`);
+console.log(`Wrote ${pictures.length} pictures (${Object.keys(manifest.hd).length + manifest.faces.length} also 4x), ${clips} sounds, ${manifest.music.length} songs, ${manifest.bgm.length} OGG songs to ${out}`);

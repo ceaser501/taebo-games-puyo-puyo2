@@ -15,7 +15,8 @@ const PAN = [-0.35, 0.35];
 export class Match {
   // players: [{ name, char, cpu: null | 'easy' | 'normal' | 'hard' }], pads: [Pad | null, Pad | null]
   // net (online only): { me: 0 | 1, host: bool, send(msg) }
-  constructor({ players, pads, sound, toWin = 2, net = null, onEnd = () => {}, onRound = () => {} }) {
+  // onFx(i, event): every board event, for effects outside the game (shaking, vibration, achievements).
+  constructor({ players, pads, sound, toWin = 2, net = null, onEnd = () => {}, onRound = () => {}, onFx = () => {} }) {
     // score / best: points and best chain over the whole match, for the ranking.
     this.players = players.map((p) => ({ ...p, wins: 0, score: 0, best: 0 }));
     this.pads = pads;
@@ -24,6 +25,7 @@ export class Match {
     this.net = net;
     this.onEnd = onEnd;
     this.onRound = onRound;
+    this.onFx = onFx;
     this.time = 0;
     this.playTime = 0; // seconds of play in this match, shown at the top
     this.acc = 0;
@@ -130,6 +132,7 @@ export class Match {
         if (local && this.net) this.net.send({ t: 'st', k: this.seed, s: this.boards[i].snapshot() });
         break;
     }
+    this.onFx(i, e);
   }
 
   // Messages from the friend (online). Round messages carry the round's seed (`k`), so a late

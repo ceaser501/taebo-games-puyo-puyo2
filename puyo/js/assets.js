@@ -57,6 +57,7 @@ export class Pictures {
 
 export const sfxUrl = (id) => `${BASE}sfx/${id}.wav`;
 export const musicUrl = (id) => `${BASE}music/${id}.mid`;
+export const bgmUrl = (id) => `${BASE}bgm/${id}.ogg`;
 
 // The poses are stacked top to bottom, but the sheets differ: 96 to 160 pixels wide (before the
 // 4x copy), poses 112 to 128 tall, not always the same height within a sheet. Each pose ends at
