@@ -20,13 +20,13 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- One row along the bottom: ◀ ▼ ▶ for the left thumb, ⟳ (tap again to keep turning) and
+  <!-- One row along the bottom: ◀ ▶ ▼ for the left thumb, ⟳ (tap again to keep turning) and
        ⤓ (straight to the bottom) for the right. -->
   <div id="touch" hidden>
     <div class="cluster">
       <button type="button" data-act="left" aria-label="왼쪽">◀</button>
-      <button type="button" data-act="down" aria-label="빨리 내리기">▼</button>
       <button type="button" data-act="right" aria-label="오른쪽">▶</button>
+      <button type="button" data-act="down" aria-label="빨리 내리기">▼</button>
     </div>
     <div class="cluster">
       <button type="button" class="turn" data-act="cw" aria-label="돌리기">⟳</button>
