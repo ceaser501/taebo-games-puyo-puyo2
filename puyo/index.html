@@ -21,7 +21,7 @@
   <canvas id="game"></canvas>
 
   <!-- One row along the bottom: ◀ ▶ ▼ for the left thumb, ⟳ (tap again to keep turning) and
-       ⤓ (straight to the bottom) for the right. -->
+       the double chevron (straight to the bottom) for the right. -->
   <div id="touch" hidden>
     <div class="cluster">
       <button type="button" data-act="left" aria-label="왼쪽">◀</button>
@@ -30,7 +30,9 @@
     </div>
     <div class="cluster">
       <button type="button" class="turn" data-act="cw" aria-label="돌리기">⟳</button>
-      <button type="button" class="hard" data-act="hard" aria-label="바로 내리기">⤓</button>
+      <button type="button" class="hard" data-act="hard" aria-label="바로 내리기">
+        <svg viewBox="0 0 34 34" aria-hidden="true"><path d="M7 6 L17 15 L27 6 M7 17 L17 26 L27 17" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
     <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
   </div>
@@ -42,7 +44,45 @@
     <button type="button" id="kakao-stay">여기서 그냥 하기</button>
   </div>
 
-  <div id="menu" class="panel wide">
+  <!-- Intro: tap to start (this also lets the browser play sound). -->
+  <div id="intro">
+    <div class="intro-logo">
+      <span class="logo">뿌요뿌요<b>2</b></span>
+      <span class="logo-sub">PUYO PUYO TSU</span>
+    </div>
+    <div class="intro-stage">
+      <div class="intro-puyos"><i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i></div>
+      <div class="intro-arle"></div>
+    </div>
+    <p id="intro-tap">불러오는 중…</p>
+  </div>
+
+  <!-- Home: my character and records, then on to the game. -->
+  <div id="home" hidden>
+    <header class="title small">
+      <span class="logo">뿌요뿌요<b>2</b></span>
+    </header>
+    <section id="home-card">
+      <button type="button" class="home-figure" id="home-figure" aria-label="캐릭터 바꾸기"></button>
+      <div class="home-info">
+        <span id="home-char"></span>
+        <label class="home-name"><span>내 이름</span><input id="home-name" type="text" maxlength="10" placeholder="이름을 넣어 주세요" autocomplete="nickname"></label>
+        <dl id="home-stats">
+          <div><dt>랭킹</dt><dd id="home-rank">-</dd></div>
+          <div><dt>점수</dt><dd id="home-points">-</dd></div>
+          <div><dt>전적</dt><dd id="home-record">-</dd></div>
+          <div><dt>최대 연쇄</dt><dd id="home-chain">-</dd></div>
+        </dl>
+        <div class="home-actions">
+          <button type="button" id="home-chars" class="chip">캐릭터 바꾸기</button>
+          <button type="button" id="home-rank-open" class="chip rank">랭킹</button>
+        </div>
+      </div>
+    </section>
+    <button type="button" id="home-play" class="big-btn">게임하러 가기</button>
+  </div>
+
+  <div id="menu" class="panel wide" hidden>
     <header class="title">
       <span class="logo">뿌요뿌요<b>2</b></span>
       <span class="logo-sub">PUYO PUYO TSU</span>
@@ -56,7 +96,7 @@
     <p id="roster-note" class="sub"></p>
 
     <div class="menu-row">
-      <label>내 이름 <input id="player-name" type="text" maxlength="8" placeholder="나" autocomplete="nickname"></label>
+      <label>내 이름 <input id="player-name" type="text" maxlength="10" placeholder="나" autocomplete="nickname"></label>
       <label>상대
         <select id="opponent">
           <option value="easy">컴퓨터 (쉬움)</option>
@@ -83,17 +123,19 @@
     <p id="notice"></p>
 
     <section id="online">
-      <h2>친구와 온라인 대전</h2>
-      <p class="sub">위에서 고른 내 캐릭터로 1:1. 방장이 왼쪽, 친구가 오른쪽이에요. 판 수와 그래픽은 각자 고른 대로예요(판 수는 방장 기준).</p>
+      <h2>친구와 온라인 대전 (1:1)</h2>
+      <p class="sub">방을 만들면 4자리 방 번호가 나와요. 대기실에서 캐릭터를 바꿀 수 있고, 이기면 랭킹 점수 +3점이에요.</p>
       <div class="online-row">
-        <button id="host" type="button">방 만들기</button>
-        <input id="code" type="text" inputmode="numeric" maxlength="5" placeholder="방 코드" autocomplete="off" spellcheck="false">
-        <button id="join" type="button">참가</button>
+        <button id="host" type="button" class="blue">방 만들기</button>
+        <input id="code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="방 번호 4자리" autocomplete="off" spellcheck="false">
+        <button id="join" type="button" class="green">참가</button>
       </div>
       <p id="net-status"></p>
     </section>
 
     <div class="menu-row">
+      <button type="button" id="menu-home">← 처음으로</button>
+      <button type="button" id="rank-open" class="rank">랭킹</button>
       <button type="button" id="menu-full" hidden>전체화면으로 하기</button>
       <button type="button" id="menu-music">배경음악 켜짐 ♪</button>
     </div>
@@ -113,19 +155,57 @@
   <div id="lobby" class="panel" hidden>
     <h1>대기실</h1>
     <div id="lobby-code-box">
-      <span>방 코드</span>
+      <span>방 번호</span>
       <strong id="lobby-code"></strong>
-      <button id="copy-code" type="button">복사</button>
+      <button id="share-link" type="button">초대 링크 보내기</button>
     </div>
-    <ul id="players">
-      <li id="slot-host" class="joined"><i class="dot red"></i><span></span><em>방장</em></li>
-      <li id="slot-guest" class="waiting"><i class="dot blue"></i><span></span><em></em></li>
-    </ul>
+    <div id="seats">
+      <div class="seat red" id="seat-host">
+        <div class="seat-figure"></div>
+        <strong class="seat-name"></strong>
+        <span class="seat-char"></span>
+        <em class="seat-role">방장</em>
+      </div>
+      <span class="vs">VS</span>
+      <div class="seat blue" id="seat-guest">
+        <div class="seat-figure"></div>
+        <strong class="seat-name"></strong>
+        <span class="seat-char"></span>
+        <em class="seat-role">친구</em>
+      </div>
+    </div>
+    <button type="button" id="lobby-chars">내 캐릭터 바꾸기</button>
+    <label class="lobby-rounds">승부
+      <select id="lobby-rounds">
+        <option value="1">1판</option>
+        <option value="2" selected>2선승</option>
+        <option value="3">3선승</option>
+      </select>
+    </label>
+    <p id="lobby-settings"></p>
     <p id="lobby-status"></p>
     <div class="lobby-actions">
       <button id="lobby-start" type="button" class="primary" disabled>게임 시작</button>
       <button id="lobby-leave" type="button">나가기</button>
     </div>
+  </div>
+
+  <div id="chars" class="panel wide" hidden>
+    <h1>캐릭터 고르기</h1>
+    <div id="char-grid"></div>
+    <p id="char-note" class="sub"></p>
+    <button type="button" id="chars-done" class="primary">이 캐릭터로 할게요</button>
+  </div>
+
+  <div id="ranking" class="panel" hidden>
+    <h1>🏆 랭킹</h1>
+    <div id="rank-tabs" class="seg">
+      <button type="button" data-month="1">이번 달</button>
+      <button type="button" data-month="0">전체</button>
+    </div>
+    <ol id="rank-list"></ol>
+    <p class="rank-rule">온라인 1:1 승리 +3점 · 같은 이름이면 같은 사람으로 셉니다</p>
+    <button type="button" id="rank-close">닫기</button>
   </div>
 
   <div id="net-banner" hidden></div>
@@ -142,6 +222,9 @@
   <div id="end" class="panel" hidden>
     <h1 id="end-title"></h1>
     <p id="end-note"></p>
+    <ol id="end-results" hidden></ol>
+    <p id="end-saved"></p>
+    <button id="end-rank" class="rank" hidden>랭킹 보기</button>
     <button id="again" class="primary">다시 하기</button>
     <button id="to-lobby" hidden>대기실로</button>
     <button id="to-menu">메뉴로</button>

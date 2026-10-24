@@ -16,7 +16,8 @@ export class Match {
   // players: [{ name, char, cpu: null | 'easy' | 'normal' | 'hard' }], pads: [Pad | null, Pad | null]
   // net (online only): { me: 0 | 1, host: bool, send(msg) }
   constructor({ players, pads, sound, toWin = 2, net = null, onEnd = () => {}, onRound = () => {} }) {
-    this.players = players.map((p) => ({ ...p, wins: 0 }));
+    // score / best: points and best chain over the whole match, for the ranking.
+    this.players = players.map((p) => ({ ...p, wins: 0, score: 0, best: 0 }));
     this.pads = pads;
     this.sound = sound;
     this.toWin = toWin;
@@ -164,7 +165,11 @@ export class Match {
     this.state = 'result';
     this.clock = 0;
     this.result = { winner };
-    this.players.forEach((p, i) => { p.wins = wins[i]; });
+    this.players.forEach((p, i) => {
+      p.wins = wins[i];
+      p.score += this.boards[i].score;
+      p.best = Math.max(p.best, this.boards[i].maxChain ?? 0);
+    });
     this.onRound(winner);
   }
 

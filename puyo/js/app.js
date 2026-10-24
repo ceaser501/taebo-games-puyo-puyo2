@@ -3,7 +3,7 @@ import { Sound } from './sound.js';
 import { Match } from './game.js';
 import { Renderer } from './render.js';
 import { Pad, KEYMAPS } from './pad.js';
-import { Net, netErrorText } from './net.js';
+import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking } from './net.js';
 import { randomSeed } from './rng.js';
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +24,9 @@ const NAMES = {
   23: '스케토우다라', 25: '위치', 28: '미노타우로스', 29: '드라코 켄타우로스', 30: '조우 다이마왕', 31: '셰조', 32: '루루', 33: '사탄', 34: '사탄',
 };
 const charName = (id) => NAMES[id] ?? `#${id}`;
+// The SD figure sheet: three poses stacked, shown in CSS by background-size 100% 300%.
+const figureUrl = (id) => `url("assets/p2/hd/GRP_SD_SD_${String(id).padStart(2, '0')}.png")`;
+const NAME_MAX = 10;
 const pick = { me: 0, cpu: 'random' };
 let picking = 'me';
 
@@ -102,9 +105,12 @@ async function init() {
   $('rounds').value = store.get('puyo-rounds', '2');
   $('opponent').value = store.get('puyo-opponent', 'normal');
   buildRoster();
+  buildCharGrid();
   $('start').disabled = false;
   $('start').textContent = '시작';
-  if (new URLSearchParams(location.search).has('sfx')) showSfxBoard();
+  if (new URLSearchParams(location.search).has('sfx')) { $('intro').hidden = true; showSfxBoard(); return; }
+  $('intro-tap').textContent = '화면을 터치해서 시작';
+  $('intro').classList.add('ready');
 }
 
 const randomChar = (not) => {
@@ -112,7 +118,7 @@ const randomChar = (not) => {
   return list[Math.floor(Math.random() * list.length)];
 };
 const stageFrame = () => manifest.frames[Math.floor(Math.random() * manifest.frames.length)];
-const myName = () => $('player-name').value.trim().slice(0, 8);
+const myName = () => $('player-name').value.trim().slice(0, NAME_MAX);
 
 function pickSetup() {
   const cpu = $('opponent').value || null;
@@ -175,8 +181,68 @@ function showEnd(winner) {
   $('end-note').textContent = `${a.name} ${a.wins} : ${b.wins} ${b.name}` + (net && !lobby?.host ? ' · 방장이 다시 시작하면 따라가요.' : '');
   $('again').hidden = !!net && (!lobby?.host || !net.connected);
   $('to-lobby').hidden = !net || !lobby?.host;
+  $('end-results').hidden = true;
+  $('end-rank').hidden = !net;
+  $('end-saved').textContent = net ? '랭킹에 기록하는 중…' : '';
   $('end').hidden = false;
   setTouch(false);
+  if (net && lobby?.host) finishOnline(winner);
+  else if (lastResult?.id === lastMatchId) showResult(lastResult);
+}
+
+// ---- online results ------------------------------------------------------------------------
+// The host works out both rows (win +3), records them, adds the new totals and tells the
+// friend. Local games only show who won.
+
+let lastMatchId = null;
+let lastResult = null;
+
+async function finishOnline(winner) {
+  const rows = match.players.map((p, i) => ({
+    match_id: lastMatchId,
+    name: p.name,
+    char: p.char,
+    won: i === winner,
+    points: i === winner ? 3 : 0,
+    rounds: p.wins,
+    score: Math.min(99999999, p.score),
+    max_chain: Math.min(19, p.best),
+  }));
+  const result = { id: lastMatchId, rows, saved: false };
+  showResult(result);
+  try {
+    await recordResults(rows);
+    const ranking = await fetchRanking();
+    for (const r of rows) {
+      const i = ranking.findIndex((x) => x.name === r.name);
+      if (i >= 0) Object.assign(r, { total: ranking[i].points, rank: i + 1 });
+    }
+    result.saved = true;
+  } catch (err) {
+    console.warn('result not recorded', err);
+    result.failed = true;
+  }
+  showResult(result);
+  for (const ms of [0, 600, 1800]) setTimeout(() => net?.send({ t: 'result', result }), ms);
+}
+
+function showResult(result) {
+  lastResult = result;
+  if ($('end').hidden || result.id !== lastMatchId) return;
+  const list = $('end-results');
+  list.innerHTML = '';
+  for (const r of result.rows) {
+    const li = document.createElement('li');
+    li.className = r.won ? 'won' : '';
+    li.innerHTML = '<span class="medal"></span><b></b><em></em><small></small>';
+    li.querySelector('.medal').textContent = r.won ? '🏆' : '';
+    li.querySelector('b').textContent = r.name;
+    li.querySelector('em').textContent = `+${r.points}점`;
+    li.querySelector('small').textContent = r.total != null ? `총 ${r.total}점 · ${r.rank}위` : `${r.score}점 · 최대 ${r.max_chain}연쇄`;
+    list.append(li);
+  }
+  list.hidden = false;
+  $('end-saved').textContent = result.saved ? '랭킹에 기록됐어요' : result.failed ? '랭킹에 기록하지 못했어요 (인터넷 연결 확인)' : '랭킹에 기록하는 중…';
 }
 
 function toMenu() {
@@ -188,8 +254,134 @@ function toMenu() {
   $('net-status').textContent = '';
   setTouch(false);
   $('menu').hidden = false;
-  sound?.stopMusic();
+  playMenuSong();
 }
+
+// The title song plays on the intro, home, menu and lobby screens.
+function playMenuSong() {
+  const song = manifest?.music.find((m) => m.id === 'PUYO2_00') ?? manifest?.music[0];
+  if (song && sound?.wanted !== song) sound?.playSong(song);
+}
+
+// ---- intro and home ------------------------------------------------------------------------
+
+function leaveIntro() {
+  if (!$('intro').classList.contains('ready') || $('intro').hidden) return;
+  $('intro').hidden = true;
+  ensureSound();
+  playMenuSong();
+  // Arriving from an invite goes straight to joining.
+  if (invited) $('menu').hidden = false;
+  else showHome();
+}
+$('intro').addEventListener('pointerup', leaveIntro);
+window.addEventListener('keydown', (e) => { if (!$('intro').hidden && (e.key === 'Enter' || e.key === ' ')) leaveIntro(); });
+
+async function showHome() {
+  $('menu').hidden = true;
+  $('home').hidden = false;
+  $('home-name').value = $('player-name').value;
+  $('home-figure').style.backgroundImage = figureUrl(pick.me);
+  $('home-char').textContent = charName(pick.me);
+  const name = $('home-name').value.trim();
+  for (const id of ['home-rank', 'home-points', 'home-record', 'home-chain']) $(id).textContent = '-';
+  if (!name) return;
+  try {
+    const ranking = await fetchRanking();
+    const i = ranking.findIndex((r) => r.name === name);
+    const r = ranking[i];
+    $('home-rank').textContent = r ? `${i + 1}위` : '-';
+    $('home-points').textContent = r ? `${r.points}점` : '0점';
+    $('home-record').textContent = r ? `${r.wins}승 ${r.games - r.wins}패` : '-';
+    $('home-chain').textContent = r?.best_chain ? `${r.best_chain}연쇄` : '-';
+  } catch { /* offline: the dashes stay */ }
+}
+function setName(name) {
+  name = name.trim().slice(0, NAME_MAX);
+  $('player-name').value = name;
+  store.set('puyo-name', name);
+}
+$('home-name').addEventListener('change', () => { setName($('home-name').value); showHome(); });
+$('player-name').addEventListener('change', () => setName($('player-name').value));
+$('home-play').onclick = () => {
+  setName($('home-name').value || $('player-name').value);
+  $('home').hidden = true;
+  $('menu').hidden = false;
+  renderRoster();
+};
+$('menu-home').onclick = showHome;
+
+// ---- character picker (home and lobby) -----------------------------------------------------
+
+function buildCharGrid() {
+  const box = $('char-grid');
+  box.innerHTML = '';
+  for (const id of ROSTER) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.id = id;
+    b.title = charName(id);
+    b.style.backgroundImage = figureUrl(id);
+    b.onclick = () => {
+      pick.me = id;
+      store.set('puyo-me', String(id));
+      sound?.sfx('select');
+      renderCharGrid();
+    };
+    box.append(b);
+  }
+}
+
+function renderCharGrid() {
+  for (const b of $('char-grid').children) b.classList.toggle('me', Number(b.dataset.id) === pick.me);
+  $('char-note').textContent = charName(pick.me);
+}
+
+function openChars() {
+  renderCharGrid();
+  $('chars').hidden = false;
+}
+$('home-chars').onclick = openChars;
+$('home-figure').onclick = openChars;
+$('chars-done').onclick = () => {
+  $('chars').hidden = true;
+  renderRoster();
+  if (!$('home').hidden) showHome();
+  if (lobby) myCharChanged();
+};
+
+// ---- ranking -------------------------------------------------------------------------------
+
+let rankMonth = true;
+async function showRanking() {
+  $('ranking').hidden = false;
+  for (const b of $('rank-tabs').children) b.classList.toggle('on', (b.dataset.month === '1') === rankMonth);
+  const list = $('rank-list');
+  list.innerHTML = '<li class="empty">불러오는 중…</li>';
+  try {
+    const rows = await fetchRanking(rankMonth);
+    list.innerHTML = '';
+    if (!rows.length) list.innerHTML = '<li class="empty">아직 기록이 없어요. 온라인 대전에서 이기면 올라가요.</li>';
+    const me = myName();
+    rows.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.className = r.name === me ? 'me' : '';
+      li.innerHTML = '<span class="pos"></span><b></b><em></em><small></small>';
+      li.querySelector('.pos').textContent = ['🥇', '🥈', '🥉'][i] ?? `${i + 1}`;
+      li.querySelector('b').textContent = r.name;
+      li.querySelector('em').textContent = `${r.points}점`;
+      li.querySelector('small').textContent = `${r.wins}승 ${r.games - r.wins}패${r.best_chain ? ` · 최대 ${r.best_chain}연쇄` : ''}`;
+      list.append(li);
+    });
+  } catch {
+    list.innerHTML = '<li class="empty">랭킹을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</li>';
+  }
+}
+$('rank-open').onclick = showRanking;
+$('home-rank-open').onclick = showRanking;
+$('end-rank').onclick = showRanking;
+$('rank-close').onclick = () => { $('ranking').hidden = true; };
+for (const b of $('rank-tabs').children) b.onclick = () => { rankMonth = b.dataset.month === '1'; showRanking(); };
 
 $('start').onclick = () => start();
 $('again').onclick = () => (net ? hostStart() : start(lastSetup));
@@ -403,14 +595,36 @@ function showLobby() {
 
 function renderLobby() {
   $('lobby-code').textContent = lobby.code;
-  $('slot-host').querySelector('span').textContent = lobby.hostName ? `${lobby.hostName} · ${charName(lobby.hostChar)}` : '방장';
-  const guest = $('slot-guest');
-  guest.className = lobby.guestState;
-  guest.querySelector('span').textContent = { waiting: '친구를 기다리는 중', connecting: '들어오는 중', joined: `${lobby.guestName} · ${charName(lobby.guestChar)}` }[lobby.guestState];
-  guest.querySelector('em').textContent = lobby.guestState === 'joined' ? '입장' : '';
+  const seat = (el, name, char, state, me) => {
+    el.classList.toggle('waiting', state !== 'joined');
+    el.classList.toggle('mine', me);
+    el.querySelector('.seat-figure').style.backgroundImage = state === 'joined' && char != null ? figureUrl(char) : 'none';
+    el.querySelector('.seat-name').textContent = state === 'joined' ? `${name ?? ''}${me ? ' (나)' : ''}` : state === 'connecting' ? '들어오는 중…' : '기다리는 중…';
+    el.querySelector('.seat-char').textContent = state === 'joined' && char != null ? charName(char) : '';
+  };
+  seat($('seat-host'), lobby.hostName ?? '방장', lobby.hostChar, lobby.hostName ? 'joined' : 'waiting', lobby.host);
+  seat($('seat-guest'), lobby.guestName, lobby.guestChar, lobby.guestState, !lobby.host);
+  $('lobby-rounds').value = String(lobby.toWin ?? 2);
+  $('lobby-rounds').disabled = !lobby.host;
+  $('lobby-settings').textContent = lobby.host ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} (방장이 정해요)`;
   $('lobby-start').hidden = !lobby.host;
   $('lobby-start').disabled = lobby.guestState !== 'joined';
 }
+
+// My character changed in the lobby: the host tells the friend the new lineup, the friend
+// tells the host.
+function myCharChanged() {
+  if (lobby.host) { lobby.hostChar = pick.me; net?.send(lobbyMsg()); }
+  else { lobby.guestChar = pick.me; net?.send({ t: 'char', c: pick.me }); }
+  renderLobby();
+}
+$('lobby-chars').onclick = openChars;
+$('lobby-rounds').onchange = () => {
+  if (!lobby?.host) return;
+  lobby.toWin = Number($('lobby-rounds').value);
+  store.set('puyo-rounds', String(lobby.toWin));
+  net?.send(lobbyMsg());
+};
 
 function openNet() {
   net?.close();
@@ -436,24 +650,23 @@ async function hostRoom() {
   netStatus('방을 만드는 중…');
   try {
     const code = await openNet().host();
-    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, guestState: 'waiting' };
+    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, guestState: 'waiting', toWin: Number($('rounds').value) };
     netStatus('');
     showLobby();
-    lobbyStatus('친구에게 방 코드를 알려 주세요.');
+    lobbyStatus('친구에게 방 번호를 알려 주거나 초대 링크를 보내세요.');
   } catch (err) {
     netStatus(netErrorText(err));
   }
 }
 
 async function joinRoom() {
-  const code = $('code').value.trim().toUpperCase();
-  if (code.length !== 5) { netStatus('5자리 방 코드를 입력해 주세요.'); return; }
+  const code = $('code').value.trim();
+  if (!new RegExp(`^\\d{${CODE_LENGTH}}$`).test(code)) { netStatus(`방 번호 ${CODE_LENGTH}자리를 입력해 주세요.`); return; }
   const name = onlineName();
   if (!name) return;
   ensureSound();
   lobby = { host: false, me: 1, code, guestName: name, guestChar: pick.me, guestState: 'joined' };
   showLobby();
-  $('slot-host').querySelector('span').textContent = '방 찾는 중…';
   lobbyStatus('방에 연결하는 중…');
   try {
     await openNet().join(code);
@@ -462,7 +675,7 @@ async function joinRoom() {
   }
 }
 
-const lobbyMsg = () => ({ t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, guest: lobby.guestName, guestChar: lobby.guestChar });
+const lobbyMsg = () => ({ t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, guest: lobby.guestName, guestChar: lobby.guestChar, toWin: lobby.toWin });
 const sendNet = (msg) => net?.send(msg);
 
 function setupFrom(msg) {
@@ -476,7 +689,8 @@ function setupFrom(msg) {
 // Host: starts (or restarts) the match.
 async function hostStart() {
   if (!lobby?.host || lobby.guestState !== 'joined') return;
-  goMsg = { ...lobbyMsg(), t: 'go', id: Math.random().toString(36).slice(2), seed: randomSeed(), toWin: Number($('rounds').value), frame: stageFrame() };
+  goMsg = { ...lobbyMsg(), t: 'go', id: Math.random().toString(36).slice(2), seed: randomSeed(), toWin: lobby.toWin ?? 2, frame: stageFrame() };
+  lastMatchId = goMsg.id;
   net.send(goMsg);
   await start(setupFrom(goMsg), { me: 0, host: true, seed: goMsg.seed, send: sendNet });
 }
@@ -492,7 +706,8 @@ function backToLobby() {
   goMsg = null;
   net?.send(lobbyMsg());
   showLobby();
-  lobbyStatus(lobby.guestState === 'joined' ? '준비되면 게임 시작을 누르세요.' : '친구에게 방 코드를 알려 주세요.');
+  playMenuSong();
+  lobbyStatus(lobby.guestState === 'joined' ? '캐릭터를 바꾸고 준비되면 게임 시작을 누르세요.' : '친구에게 방 번호를 알려 주세요.');
 }
 
 function chime() {
@@ -502,12 +717,18 @@ function chime() {
 function fromGuest(msg) {
   if (msg.t === 'bye') { net.dropGuest(); friendLeft(); return; }
   if (msg.t === 'hello') {
-    lobby.guestName = String(msg.name || '친구').slice(0, 8);
+    lobby.guestName = String(msg.name || '친구').slice(0, NAME_MAX);
     lobby.guestChar = ROSTER.includes(msg.char) ? msg.char : 0;
     lobby.guestState = 'joined';
     if (!$('lobby').hidden) renderLobby();
     lobbyStatus(`${lobby.guestName} 님이 들어왔어요. 게임 시작을 누르세요.`);
     chime();
+    net.send(lobbyMsg());
+    return;
+  }
+  if (msg.t === 'char') {
+    if (ROSTER.includes(msg.c)) lobby.guestChar = msg.c;
+    if (!$('lobby').hidden) renderLobby();
     net.send(lobbyMsg());
     return;
   }
@@ -518,14 +739,19 @@ let joinedGo = null;
 async function fromHost(msg) {
   if (msg.t === 'bye') { friendLeft(); return; }
   if (msg.t === 'lobby') {
-    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined' });
+    // While playing, a lineup update only waits for the next visit to the lobby.
+    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined', toWin: msg.toWin });
+    if (match && $('end').hidden) return;
+    const first = $('lobby').hidden;
     showLobby();
-    lobbyStatus('방장이 게임을 시작하길 기다리는 중…');
+    if (first) { playMenuSong(); lobbyStatus('캐릭터를 바꾸고 방장이 게임을 시작하길 기다려 주세요.'); }
     return;
   }
+  if (msg.t === 'result') { showResult(msg.result); return; }
   if (msg.t === 'go') {
     if (msg.id === joinedGo) return;
     joinedGo = msg.id;
+    lastMatchId = msg.id;
     await start(setupFrom(msg), { me: 1, host: false, seed: msg.seed, send: sendNet });
     return;
   }
@@ -547,7 +773,7 @@ function friendLeft() {
     goMsg = null;
     if (match) { match.paused = true; endWithText('친구와 연결이 끊겼어요'); return; }
     renderLobby();
-    lobbyStatus('친구가 나갔어요. 같은 코드로 다시 들어올 수 있어요.');
+    lobbyStatus('친구가 나갔어요. 같은 번호로 다시 들어올 수 있어요.');
   } else {
     net.close();
     net = null;
@@ -581,13 +807,28 @@ $('join').onclick = joinRoom;
 $('lobby-start').onclick = hostStart;
 $('lobby-leave').onclick = () => toMenu();
 $('to-lobby').onclick = backToLobby;
-$('copy-code').onclick = async () => {
+// An invite link opens the game with the room number filled in. Phones get their share sheet
+// (KakaoTalk and the like); elsewhere the link is copied.
+const inviteLink = (code) => `${location.origin}${location.pathname}?room=${code}`;
+$('share-link').onclick = async () => {
+  const url = inviteLink(lobby.code);
+  const text = `뿌요뿌요 같이 하자! 방 번호 ${lobby.code}`;
   try {
-    await navigator.clipboard.writeText(lobby.code);
-    $('copy-code').textContent = '복사됨';
-    setTimeout(() => { $('copy-code').textContent = '복사'; }, 1500);
-  } catch { /* clipboard blocked: the code is selectable text */ }
+    if (navigator.share) { await navigator.share({ title: '뿌요뿌요 2', text, url }); return; }
+  } catch (err) { if (err?.name === 'AbortError') return; }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    $('share-link').textContent = '복사됨! 카톡에 붙여넣기';
+    setTimeout(() => { $('share-link').textContent = '초대 링크 보내기'; }, 2000);
+  } catch { lobbyStatus(`이 링크를 보내 주세요: ${url}`); }
 };
+// Arriving from an invite: fill in the room number and say what to do next.
+const invited = new URLSearchParams(location.search).get('room');
+if (invited && /^\d+$/.test(invited)) {
+  $('code').value = invited;
+  netStatus(`${invited}번 방에 초대받았어요! ${store.get('puyo-name', '') ? '' : '이름을 넣고 '}참가를 누르세요.`);
+  $('join').classList.add('pulse');
+}
 $('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(); });
 window.addEventListener('pagehide', () => net?.send({ t: 'bye' }));
 
