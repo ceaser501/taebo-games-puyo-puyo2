@@ -17,7 +17,9 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 // and shows the other one small beside it.
 // Height kept under the fields on a tall screen for the two characters (with names and stars);
 // short screens shrink the game a little rather than lose them.
-const FIGURE_STRIP = 140;
+const FIGURE_STRIP = 90;
+// Height of the tall layout without that strip: status bar, then my field drawn 1.12x.
+const TALL_H = 552;
 
 // extra: screen units left below the fields on a tall screen, where the characters stand.
 function layout(tall, me, extra = 0) {
@@ -34,14 +36,14 @@ function layout(tall, me, extra = 0) {
   // field in the column beside it; below them the two characters face each other, and the
   // row of touch buttons sits under that.
   const o = 1 - me;
-  const L = { screen: { w: 360, h: 490 + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
-  L.fields[me] = { x: 20, y: 84, s: 1 };
-  L.fields[o] = { x: 246, y: 252, s: 0.54 };
-  L.next[me] = { x: 242, y: 60 };
+  const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
+  L.fields[me] = { x: 24, y: 98, s: 1.12 };
+  L.fields[o] = { x: 266, y: 250, s: 0.44 };
+  L.next[me] = { x: 258, y: 72 };
   L.next[o] = null;
   if (extra >= FIGURE_STRIP) {
-    // Feet above the name and the stars, which take the last 36 units.
-    const h = Math.min(extra - 44, 150), y = 490 + extra - 40;
+    // Small figures, feet above the name and the stars (the last 36 units).
+    const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
     L.figure[me] = { x: 100, y, h, name: true };
     L.figure[o] = { x: 260, y, h, name: true };
   }
@@ -131,8 +133,8 @@ export class Renderer {
     if (this.tall) {
       btn = this.touch ? Math.floor(Math.min((w - 48 - 40 - 24) / 5, 76)) : 0;
       const room = btn ? btn + 28 : 0;
-      this.scale = Math.min(w / 360, (h - room) / (490 + FIGURE_STRIP));
-      this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - 490));
+      this.scale = Math.min(w / 360, (h - room) / (TALL_H + FIGURE_STRIP));
+      this.layout = layout(true, this.me, Math.max(0, (h - room) / this.scale - TALL_H));
       this.ox = (w - 360 * this.scale) / 2;
       this.oy = 0;
     } else {
@@ -314,15 +316,17 @@ export class Renderer {
   }
 
   // Text in one of the original fonts; returns the width. align: 'left' | 'right' | 'center'.
-  glyphs(ctx, text, x, y, font = 'white', align = 'left', size = 1) {
+  // wide < 1 draws the letters narrower than they are tall.
+  glyphs(ctx, text, x, y, font = 'white', align = 'left', size = 1, wide = 1) {
     if (!this.ry) return 0;
     const f = FONTS[font], k = this.ry.scale;
-    const w = 16 * size * text.length;
+    const step = 16 * size * wide;
+    const w = step * text.length;
     let cx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
     for (const ch of text.toUpperCase()) {
       const i = GLYPHS.indexOf(ch);
-      if (i >= 0 && ch !== ' ') ctx.drawImage(this.ry.img, i * 16 * k, f.y * k, 16 * k, f.h * k, cx, y, 16 * size, f.h * size);
-      cx += 16 * size;
+      if (i >= 0 && ch !== ' ') ctx.drawImage(this.ry.img, i * 16 * k, f.y * k, 16 * k, f.h * k, cx, y, step, f.h * size);
+      cx += step;
     }
     return w;
   }
@@ -750,21 +754,21 @@ export class Renderer {
       return;
     }
     const right = L.screen.w - 52; // the pause button sits beyond this
-    ctx.fillStyle = 'rgba(6,8,20,0.8)';
-    roundRect(ctx, 4, 4, right - 4, 48, 12);
+    ctx.fillStyle = 'rgba(6,8,20,0.82)';
+    roundRect(ctx, 4, 4, right - 4, 60, 12);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
     const mid = (4 + right) / 2;
-    this.hudText(ctx, time, mid, 20, 18, 'center', '#fff');
+    this.hudText(ctx, time, mid, 24, 22, 'center', '#fff', 0.85);
     // Rounds won under the time: mine on the left, theirs on the right.
     const me = this.me, other = 1 - me;
     for (const [i, dir] of [[me, -1], [other, 1]]) {
       const p = match.players[i];
       for (let k = 0; k < match.toWin; k++) {
         ctx.fillStyle = k < p.wins ? '#ffd84a' : 'rgba(255,255,255,0.22)';
-        star(ctx, mid + dir * (10 + k * 11), 40, 4.5, 2);
+        star(ctx, mid + dir * (12 + k * 14), 52, 5.5, 2.5);
         ctx.fill();
       }
     }
@@ -776,25 +780,26 @@ export class Renderer {
   hudSide(ctx, match, i, x, align) {
     const b = match.boards[i], p = match.players[i];
     const now = b.chainShow > 0 ? b.lastChain : 0;
-    ctx.font = `800 10px ${FONT}`;
+    ctx.font = `800 13px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = align;
     ctx.fillStyle = PLAYER_COLOURS[i];
-    const name = p.name.length > 5 ? `${p.name.slice(0, 5)}…` : p.name;
-    ctx.fillText(name, x, 15);
+    const name = p.name.length > 4 ? `${p.name.slice(0, 4)}…` : p.name;
+    ctx.fillText(name, x, 17);
     const nameW = ctx.measureText(name).width;
-    const chain = now ? `${now}연쇄!` : b.maxChain ? `최대 ${b.maxChain}` : '';
+    const chain = now ? `${now}연쇄!` : b.maxChain ? `최대${b.maxChain}` : '';
     if (chain) {
-      ctx.fillStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.6)';
-      ctx.fillText(chain, align === 'left' ? x + nameW + 6 : x - nameW - 6, 15);
+      ctx.font = `800 12px ${FONT}`;
+      ctx.fillStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.65)';
+      ctx.fillText(chain, align === 'left' ? x + nameW + 5 : x - nameW - 5, 17);
     }
-    this.hudText(ctx, String(b.score), x, 35, 15, align, '#fff');
+    this.hudText(ctx, String(b.score), x, 46, 20, align, '#fff', 0.8);
   }
 
   // Numbers and times in the status bar: the original white font, or plain text when modern.
-  hudText(ctx, text, x, y, size, align, colour) {
+  hudText(ctx, text, x, y, size, align, colour, wide = 1) {
     if (this.classic && this.ry) {
-      this.glyphs(ctx, text, x, y - size / 2, 'white', align, size / 16);
+      this.glyphs(ctx, text, x, y - size / 2, 'white', align, size / 16, wide);
       return;
     }
     ctx.font = `800 ${size}px ${FONT}`;
