@@ -541,11 +541,6 @@ body.touch .keys {
   pointer-events: auto;
 }
 
-/* ⟳ sits well apart from ⤓ so a quick turn never lands on the drop. */
-#touch .cluster:last-of-type {
-  gap: calc(10px + var(--btn) * 0.25);
-}
-
 #touch .cluster button {
   width: var(--btn);
   height: calc(var(--btn) * 1.2);
@@ -562,11 +557,6 @@ body.touch .keys {
 
 #touch .cluster button.turn {
   font-size: calc(var(--btn) * 0.46);
-}
-
-#touch .cluster button.hard {
-  background: rgba(255, 170, 30, 0.3);
-  border-color: rgba(255, 207, 58, 0.65);
 }
 
 #touch .cluster button.held {
@@ -586,13 +576,6 @@ body.touch .keys {
   color: #fff;
   font-size: 14px;
   pointer-events: auto;
-}
-
-/* ---- hard drop icon ---- */
-
-#touch .cluster button.hard svg {
-  width: calc(var(--btn) * 0.5);
-  height: calc(var(--btn) * 0.5);
 }
 
 /* ---- intro ---- */

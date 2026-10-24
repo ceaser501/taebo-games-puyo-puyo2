@@ -20,8 +20,8 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- One row along the bottom: ◀ ▶ ▼ for the left thumb, ⟳ (tap again to keep turning) and
-       the double chevron (straight to the bottom) for the right. -->
+  <!-- One row along the bottom: ◀ ▶ ▼ for the left thumb, ⟳ (tap again to keep turning) for
+       the right. A quick flick down on the field drops straight to the bottom. -->
   <div id="touch" hidden>
     <div class="cluster">
       <button type="button" data-act="left" aria-label="왼쪽">◀</button>
@@ -30,9 +30,6 @@
     </div>
     <div class="cluster">
       <button type="button" class="turn" data-act="cw" aria-label="돌리기">⟳</button>
-      <button type="button" class="hard" data-act="hard" aria-label="바로 내리기">
-        <svg viewBox="0 0 34 34" aria-hidden="true"><path d="M7 6 L17 15 L27 6 M7 17 L17 26 L27 17" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
     </div>
     <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
   </div>
