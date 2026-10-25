@@ -14,7 +14,7 @@ export const ACHIEVEMENTS = [
   { id: 'online1', title: '온라인 데뷔', desc: '온라인 대전에서 이기기', rank: 6, test: (s) => s.onlineWins >= 1 },
   { id: 'chain5', title: '연쇄의 달인', desc: '5연쇄 하기', rank: 7, test: (s) => s.bestChain >= 5 },
   { id: 'wins10', title: '베테랑', desc: '10번 이기기', rank: 8, test: (s) => s.wins >= 10 },
-  { id: 'hard', title: '어려움 정복', desc: '컴퓨터(어려움) 이기기', rank: 9, test: (s) => s.hardWins >= 1 },
+  { id: 'hard', title: '어려움 정복', desc: '컴퓨터 Lv9 이상 이기기', rank: 9, test: (s) => s.hardWins >= 1 },
   { id: 'clear10', title: '청소의 신', desc: '전부 지우기 10번', rank: 10, test: (s) => s.allClears >= 10 },
   { id: 'games100', title: '뿌요 중독', desc: '100판 하기', rank: 11, test: (s) => s.games >= 100 },
   { id: 'chain7', title: '바요엔 마스터', desc: '7연쇄 하기', rank: 12, test: (s) => s.bestChain >= 7 },
@@ -71,8 +71,8 @@ export function allClear() {
   return check();
 }
 
-// At the end of a match I played: won or not, online or against which computer.
-export function matchDone({ won, online, cpu }) {
+// At the end of a match I played: won or not, online or against which computer level (0: none).
+export function matchDone({ won, online, level = 0 }) {
   const s = data.stats;
   s.games++;
   if (won) {
@@ -80,7 +80,7 @@ export function matchDone({ won, online, cpu }) {
     s.streak++;
     s.bestStreak = Math.max(s.bestStreak, s.streak);
     if (online) s.onlineWins++;
-    if (cpu === 'hard') s.hardWins++;
+    if (level >= 9) s.hardWins++;
   } else s.streak = 0;
   return check();
 }

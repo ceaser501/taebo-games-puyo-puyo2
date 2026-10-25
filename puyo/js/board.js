@@ -62,6 +62,9 @@ export class Board {
     this.frame = 0;
     this.attack = 0; // nuisance this board sent during the current chain (for the CPU)
     this.maxChain = 0; // best chain this round
+    // Practice: the pair stays put until moved down, and every pair can be taken back.
+    this.still = false;
+    this.history = null; // [field before each pair], when taking back is on
   }
 
   at(x, y) { return x < 0 || x >= W || y >= H ? 255 : y < 0 ? 0 : this.grid[y * W + x]; }
@@ -72,7 +75,7 @@ export class Board {
   get nextPairs() { return [this.pairs.get(this.next), this.pairs.get(this.next + 1)]; }
 
   // Speed in cells per frame: slow at first, faster over a long round.
-  get gravity() { return Math.min(0.12, (0.022 + this.time * 0.00012) * this.speed); }
+  get gravity() { return this.still ? 0 : Math.min(0.12, (0.022 + this.time * 0.00012) * this.speed); }
 
   // A puyo at a fractional row covers the rows it overlaps.
   free(x, y) {
@@ -92,10 +95,31 @@ export class Board {
       this.emit('dead');
       return;
     }
+    if (this.history) {
+      this.history.push({ grid: this.grid.slice(), next: this.next, score: this.score, maxChain: this.maxChain, allClear: this.allClear });
+      if (this.history.length > 200) this.history.shift();
+    }
     const [a, b] = this.pairs.get(this.next++);
     this.piece = { x: DEATH_X, y: 1, r: 0, a, b, lock: 0, resets: 0, kicks: 0 };
     this.phase = 'move';
     this.emit('spawn');
+  }
+
+  // Practice: back to just before the last pair was put down (with the pair in hand, the one
+  // before it). False when there is nothing to take back.
+  undo() {
+    const h = this.history;
+    if (!h?.length) return false;
+    if (this.phase === 'move') {
+      if (h.length < 2) return false;
+      h.pop(); // the pair in hand
+    }
+    const s = h.pop(); // spawning again records it again
+    this.grid.set(s.grid);
+    Object.assign(this, { next: s.next, score: s.score, maxChain: s.maxChain, allClear: s.allClear });
+    Object.assign(this, { piece: null, falling: [], popping: [], chain: 0, chainShow: 0, allClearShow: 0, pending: 0, incoming: 0, leftover: 0, dead: false, phase: 'spawn', timer: 1 });
+    this.land.fill(0);
+    return true;
   }
 
   step(input = {}) {

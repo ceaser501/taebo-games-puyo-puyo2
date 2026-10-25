@@ -5,6 +5,7 @@ import { Renderer } from './render.js';
 import { Pad, KEYMAPS } from './pad.js';
 import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking } from './net.js';
 import { randomSeed } from './rng.js';
+import { levelOf } from './ai.js';
 import * as achieve from './achieve.js';
 
 const $ = (id) => document.getElementById(id);
@@ -121,10 +122,13 @@ async function init() {
   $('rounds').value = store.get('puyo-rounds', '2');
   $('bgm').value = store.get('puyo-bgm', 'arcade');
   for (const el of document.querySelectorAll('.bgm-pick')) el.hidden = !hasOgg();
-  $('opponent').value = store.get('puyo-opponent', 'normal');
+  // Saved before the levels: easy / normal / hard.
+  const opp = store.get('puyo-opponent', '6');
+  $('opponent').value = opp === '' ? '' : String(levelOf(opp));
   buildRoster();
   buildCharGrid();
   $('start').disabled = false;
+  $('practice').disabled = false;
   $('start').textContent = '시작';
   if (new URLSearchParams(location.search).has('sfx')) { $('intro').hidden = true; showSfxBoard(); return; }
   $('intro-tap').textContent = '화면을 터치해서 시작';
@@ -167,7 +171,7 @@ async function start(setup = pickSetup(), online = null) {
   await renderer.prepare({ frame, chars: setup.players.map((p) => p.char) });
   renderer.reset();
   if (!online) lastSetup = { ...setup, frame };
-  const local = !online && !setup.players[1].cpu;
+  const local = !online && !setup.players[1].cpu && !setup.practice;
   pads = online
     ? [0, 1].map((i) => (i === online.me ? new Pad(KEYMAPS.solo) : null))
     : local ? [new Pad(KEYMAPS.left), new Pad(KEYMAPS.right)] : [new Pad(KEYMAPS.solo), null];
@@ -177,9 +181,15 @@ async function start(setup = pickSetup(), online = null) {
     sound,
     toWin: setup.toWin,
     net: online,
+    practice: !!setup.practice,
     onEnd: (winner) => { if (match === m) setTimeout(() => showEnd(winner), 1200); },
     onFx: (i, e) => onFx(m, i, e),
   });
+  // Practice: the emote button takes things back instead.
+  $('t-emo').textContent = setup.practice ? '↶' : '😀';
+  $('t-emo').style.fontSize = setup.practice ? '24px' : '';
+  $('t-emo').setAttribute('aria-label', setup.practice ? '되돌리기' : '이모티콘');
+  $('pause-restart').hidden = !setup.practice;
   match = m;
   hold.me = hold.friend = false;
   netBanner('');
@@ -188,8 +198,9 @@ async function start(setup = pickSetup(), online = null) {
   $('menu').hidden = true;
   $('end').hidden = true;
   setTouch(touchDevice);
+  // Online both pick the same song, from the match's seed.
   const songs = gameSongs(setup.bgm);
-  sound.playSong(songs[Math.floor(Math.random() * songs.length)]);
+  sound.playSong(songs[online ? online.seed % songs.length : Math.floor(Math.random() * songs.length)]);
   $('start').disabled = false;
   $('start').textContent = '시작';
 }
@@ -207,7 +218,7 @@ function showEnd(winner) {
   $('end-rank').hidden = !net;
   $('end-saved').textContent = net ? '랭킹에 기록하는 중…' : '';
   // My record for the achievements (not for two players on one keyboard).
-  const fresh = me != null ? achieve.matchDone({ won: winner === me, online: !!net, cpu: match.players[1].cpu }) : [];
+  const fresh = me != null ? achieve.matchDone({ won: winner === me, online: !!net, level: match.players[1].cpu ? levelOf(match.players[1].cpu) : 0 }) : [];
   $('end-achieve').hidden = !fresh.length;
   $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((a) => `[${a.title}]`).join(' ')}` : '';
   closeEmo();
@@ -435,6 +446,17 @@ $('rank-close').onclick = () => { $('ranking').hidden = true; };
 for (const b of $('rank-tabs').children) b.onclick = () => { rankMonth = b.dataset.month === '1'; showRanking(); };
 
 $('start').onclick = () => start();
+// Practice: my character alone, nothing against me and no clock (see Match `practice`).
+function practiceSetup() {
+  const name = myName() || '나';
+  store.set('puyo-name', myName());
+  return { practice: true, toWin: 1, bgm: bgmMode(), players: [{ name, char: pick.me, cpu: null, title: achieve.title() }, { name: '', char: pick.me, cpu: null }] };
+}
+$('practice').onclick = () => start(practiceSetup());
+$('pause-restart').onclick = () => { closePause(); start(practiceSetup()); };
+function undo() {
+  if (match?.undo()) sound?.sfx('turn', 0, 0.6);
+}
 $('again').onclick = () => (net ? hostStart() : start(lastSetup));
 $('to-menu').onclick = toMenu;
 
@@ -450,6 +472,7 @@ window.addEventListener('keydown', (e) => {
   if (document.activeElement?.tagName === 'INPUT') return;
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (match.practice && (e.code === 'Backspace' || e.code === 'KeyU')) { undo(); return; }
   for (const p of pads) if (p?.key(e.code, true)) break;
 });
 window.addEventListener('keyup', (e) => { for (const p of pads) p?.key(e.code, false); });
@@ -548,7 +571,7 @@ canvas.addEventListener('pointercancel', () => { gesture = null; });
 // Every board event: the renderer shakes and flashes; on my own board the phone buzzes (harder
 // for longer chains) and achievements are checked, a new one shown over my character.
 
-const myIndex = () => (net ? lobby?.me ?? 0 : match?.players[1].cpu ? 0 : null);
+const myIndex = () => (net ? lobby?.me ?? 0 : match?.players[1].cpu || match?.practice ? 0 : null);
 let vibeOn = store.get('puyo-vibe', 'on') !== 'off';
 function buzz(pattern) {
   if (vibeOn && touchDevice) try { navigator.vibrate?.(pattern); } catch { /* not allowed */ }
@@ -565,14 +588,16 @@ function onFx(m, i, e) {
   if (m !== match) return;
   renderer.onEvent(i, e, m.time);
   if (i !== myIndex()) return;
+  // Practice can take pairs back, so it earns nothing.
+  const earn = !m.practice;
   let fresh = [];
   switch (e.type) {
     case 'pop':
       buzz(e.chain >= 5 ? [50, 40, 90] : Math.min(14 + e.chain * 12, 70));
-      fresh = achieve.chainDone(e.chain);
+      if (earn) fresh = achieve.chainDone(e.chain);
       break;
     case 'garbage': if (e.n >= 6) buzz([30, 30, 50]); break;
-    case 'allClear': buzz([40, 40, 40, 40, 80]); fresh = achieve.allClear(); break;
+    case 'allClear': buzz([40, 40, 40, 40, 80]); if (earn) fresh = achieve.allClear(); break;
     case 'dead': buzz(220); break;
   }
   if (!fresh.length) return;
@@ -601,7 +626,7 @@ function openEmo() {
   box.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
 }
 function closeEmo() { $('emo-pick').hidden = true; }
-$('t-emo').onclick = () => { if ($('emo-pick').hidden) openEmo(); else closeEmo(); };
+$('t-emo').onclick = () => { if (match?.practice) undo(); else if ($('emo-pick').hidden) openEmo(); else closeEmo(); };
 function sendEmo(k) {
   closeEmo();
   const now = performance.now(), i = myIndex() ?? 0;
@@ -650,7 +675,8 @@ function togglePause() {
 }
 function openPause() {
   if (!match) return;
-  $('pause-note').textContent = net ? '친구 게임도 함께 멈춰요. 나가면 친구와의 게임이 끝나요.' : '';
+  $('pause-note').textContent = net ? '친구 게임도 함께 멈춰요. 나가면 친구와의 게임이 끝나요.'
+    : match.practice ? '연습 모드: 뿌요가 저절로 떨어지지 않아요. ︾(PC는 Space)로 내려놓고, ↶(PC는 Backspace)로 되돌려요. 점수·업적은 기록되지 않아요.' : '';
   $('pause').hidden = false;
   closeEmo();
   pads.forEach((p) => p?.release());

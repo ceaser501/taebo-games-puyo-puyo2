@@ -13,16 +13,19 @@ const SNAPSHOT_EVERY = 3; // frames between snapshots sent online (20 a second)
 const PAN = [-0.35, 0.35];
 
 export class Match {
-  // players: [{ name, char, cpu: null | 'easy' | 'normal' | 'hard' }], pads: [Pad | null, Pad | null]
+  // players: [{ name, char, cpu: null | level 1-10 (ai.js) }], pads: [Pad | null, Pad | null]
   // net (online only): { me: 0 | 1, host: bool, send(msg) }
   // onFx(i, event): every board event, for effects outside the game (shaking, vibration, achievements).
-  constructor({ players, pads, sound, toWin = 2, net = null, onEnd = () => {}, onRound = () => {}, onFx = () => {} }) {
+  // practice: one board only (the second is never played), no rounds, the pair stays put until
+  // moved down, and pairs can be taken back.
+  constructor({ players, pads, sound, toWin = 2, net = null, practice = false, onEnd = () => {}, onRound = () => {}, onFx = () => {} }) {
     // score / best: points and best chain over the whole match, for the ranking.
     this.players = players.map((p) => ({ ...p, wins: 0, score: 0, best: 0 }));
     this.pads = pads;
     this.sound = sound;
     this.toWin = toWin;
     this.net = net;
+    this.practice = practice;
     this.onEnd = onEnd;
     this.onRound = onRound;
     this.onFx = onFx;
@@ -39,6 +42,7 @@ export class Match {
     const pairs = new Pairs(seed);
     this.boards = [0, 1].map((i) => (this.net && i !== this.net.me ? new Mirror(pairs) : new Board({ pairs, seed: seed + 1 + i })));
     this.cpus = this.players.map((p, i) => (p.cpu && !this.net ? new Cpu(this.boards[i], p.cpu, this.boards[1 - i]) : null));
+    if (this.practice) Object.assign(this.boards[0], { still: true, history: [] });
     this.state = 'ready';
     this.clock = 0;
     this.result = null;
@@ -84,12 +88,20 @@ export class Match {
     this.frame++;
     this.playTime += DT;
     this.boards.forEach((b, i) => {
+      if (this.practice && i) return;
       const input = this.cpus[i]?.input() ?? this.pads[i]?.frame() ?? {};
       b.step(input);
       for (const e of b.events) this.event(i, e);
     });
     if (this.net && this.frame % SNAPSHOT_EVERY === 0) this.net.send({ t: 'st', k: this.seed, s: this.boards[this.net.me].snapshot() });
-    if (!this.net || this.net.host) this.checkRound();
+    if (!this.practice && (!this.net || this.net.host)) this.checkRound();
+  }
+
+  // Practice: take back the last pair.
+  undo() {
+    if (!this.practice || this.state !== 'play') return false;
+    this.pads[0]?.release();
+    return this.boards[0].undo();
   }
 
   // Host: messages can go missing, so the round start is repeated until the friend's board
@@ -114,13 +126,13 @@ export class Match {
         s?.chain(e.chain, pan);
         s?.chainVoice(this.players[i].char, e.chain, pan);
         if (e.cancel) s?.sfx('offset', pan, 0.6);
-        if (local && e.send) {
+        if (local && e.send && !this.practice) {
           if (this.net) this.net.send({ t: 'atk', k: this.seed, n: e.send });
           else other.receive(e.send);
         }
         break;
       case 'chainEnd':
-        if (!local) break;
+        if (!local || this.practice) break;
         if (this.net) this.net.send({ t: 'rel', k: this.seed });
         else other.release();
         break;

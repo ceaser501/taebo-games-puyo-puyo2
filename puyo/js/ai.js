@@ -5,10 +5,28 @@ import { Board, W, H, GARBAGE, DEATH_X, ROT, chainPower } from './board.js';
 
 const findPops = (grid) => Board.prototype.findPops(grid);
 
-export const LEVELS = {
-  easy: { every: 14, think: 30, soft: false, fire: 2, look: false, noise: 30, potential: false },
-  normal: { every: 6, think: 14, soft: true, fire: 3, look: false, noise: 4, potential: true },
-  hard: { every: 3, think: 6, soft: true, fire: 5, look: true, noise: 0, potential: true },
+// Levels 1-10, a small step each. every: frames between moves; think: frames before the first
+// move; soft: drops fast once in place; fire: smallest chain it sets off on purpose; noise: how
+// much it misjudges places; potential: how much it values chains waiting to be set off (0 never
+// builds them); look: also tries the next pair (for the best `look` places).
+export const LEVELS = [
+  null,
+  { every: 18, think: 36, soft: false, fire: 2, noise: 45, potential: 0, look: 0 },
+  { every: 14, think: 30, soft: false, fire: 2, noise: 30, potential: 0, look: 0 }, // the old easy
+  { every: 12, think: 26, soft: false, fire: 2, noise: 22, potential: 0.25, look: 0 },
+  { every: 10, think: 22, soft: true, fire: 2, noise: 15, potential: 0.45, look: 0 },
+  { every: 8, think: 18, soft: true, fire: 3, noise: 9, potential: 0.7, look: 0 },
+  { every: 6, think: 14, soft: true, fire: 3, noise: 4, potential: 1, look: 0 }, // the old normal
+  { every: 5, think: 11, soft: true, fire: 4, noise: 2, potential: 1, look: 0 },
+  { every: 4, think: 9, soft: true, fire: 4, noise: 1, potential: 1, look: 3 },
+  { every: 3, think: 6, soft: true, fire: 5, noise: 0, potential: 1, look: 5 }, // the old hard
+  { every: 2, think: 4, soft: true, fire: 5, noise: 0, potential: 1.2, look: 8 },
+];
+// Settings saved before there were levels.
+const OLD = { easy: 2, normal: 6, hard: 9 };
+export const levelOf = (cpu) => {
+  const n = OLD[cpu] ?? Number(cpu);
+  return n >= 1 && n <= 10 ? Math.round(n) : 6;
 };
 
 function gravity(g) {
@@ -115,15 +133,15 @@ function shape(g, colours, usePotential) {
       if (y + 2 < H && g[(y + 2) * W + x] === c && g[(y + 1) * W + x] !== c) v += 0.8;
     }
   }
-  if (usePotential) v += potential(g, colours) ** 2 * 9;
+  if (usePotential) v += potential(g, colours) ** 2 * 9 * usePotential;
   return v;
 }
 
 export class Cpu {
-  constructor(board, level = 'normal', opponent = null) {
+  constructor(board, level = 6, opponent = null) {
     this.board = board;
     this.opponent = opponent;
-    this.cfg = LEVELS[level] || LEVELS.normal;
+    this.cfg = LEVELS[levelOf(level)];
     this.target = null;
     this.wait = 0;
     this.piece = null;
@@ -159,17 +177,21 @@ export class Cpu {
     options.sort((p, q) => q.v - p.v);
     if (this.cfg.look && a2) {
       // Look one pair further for the best few.
-      for (const o of options.slice(0, 5)) {
+      for (const o of options.slice(0, this.cfg.look)) {
         if (o.v >= 5000) continue;
+        // Shape alone for every follow-up, the waiting chains (slow to work out) only for the best three.
         let best = -1e9;
+        const follow = [];
         for (let x = 0; x < W; x++) {
           for (let r = 0; r < 4; r++) {
             const res = place(o.g, x, r, a2, b2);
             if (!res || res.dead) continue;
-            const v = res.chain >= this.cfg.fire ? 3000 + res.score / 10 : shape(res.g, colours, false);
-            if (v > best) best = v;
+            if (res.chain >= this.cfg.fire) best = Math.max(best, 3000 + res.score / 10);
+            else follow.push({ g: res.g, v: shape(res.g, colours, 0) });
           }
         }
+        follow.sort((p, q) => q.v - p.v);
+        for (const f of follow.slice(0, 3)) best = Math.max(best, shape(f.g, colours, this.cfg.potential));
         o.v = o.v * 0.5 + best * 0.5;
       }
       options.sort((p, q) => q.v - p.v);

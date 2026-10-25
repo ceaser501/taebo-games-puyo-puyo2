@@ -6,6 +6,7 @@
 // stage; 'classic' uses the original frame and puyo pictures (the 4x Scale2x copies, drawn
 // smoothed). Text, warnings and effects are the same for both.
 import { W, H, ROT, GARBAGE, DEATH_X } from './board.js';
+import { place } from './ai.js';
 
 export const SCREEN = { w: 640, h: 480 };
 export const CELL = 32;
@@ -425,6 +426,7 @@ export class Renderer {
       ctx.setTransform(this.px, 0, 0, this.px, this.ox * this.dpr, this.oy * this.dpr);
     }
     match.boards.forEach((b, i) => {
+      if (match.practice && i) return; // practice: one field, the panel takes the other's place
       const at = this.layout.fields[i], home = FIELDS[i];
       ctx.save();
       // Shaking: a quick wobble that dies out in a third of a second.
@@ -712,7 +714,9 @@ export class Renderer {
 
   drawCentre(ctx, match) {
     const L = this.layout;
+    if (match.practice) this.drawPractice(ctx, match);
     match.boards.forEach((b, i) => {
+      if (match.practice && i) return;
       // NEXT and the one after.
       if (L.next[i]) this.drawNext(ctx, b, i, L.next[i]);
       if (this.framed) {
@@ -835,7 +839,7 @@ export class Renderer {
     ctx.strokeText(p.name, left, y, nw * k);
     ctx.fillStyle = '#fff';
     ctx.fillText(p.name, left, y, nw * k);
-    this.drawWins(ctx, p, x, y + 16, match);
+    if (!match.practice) this.drawWins(ctx, p, x, y + 16, match);
   }
 
   // A big chain's cut-in over the character's half of the strip: a slanted band in the
@@ -915,6 +919,92 @@ export class Renderer {
     ctx.fillStyle = cut.n >= 6 ? '#ff7a7a' : '#ffd84a';
     ctx.fillText(`${cut.n}연쇄!`, tx + tw / 2, top + h * 0.78, tw);
     ctx.restore();
+  }
+
+  // ---- practice ---------------------------------------------------------------------------
+
+  // Where the second field would be: what the pair in hand would set off where it is now (the
+  // landing spot is the faint dots in the field), the best chain so far, and how to take back.
+  drawPractice(ctx, match) {
+    const b = match.boards[0], at = this.layout.fields[1], mine = this.layout.fields[0];
+    // Down to the bottom of my field (upright the small field ends higher).
+    const s = at.s, x = at.x - 6 * s, y = at.y - 6 * s, w = (FIELD_W + 12) * s;
+    const h = Math.max((FIELD_H + 12) * s, mine.y + (FIELD_H + 6) * mine.s - y);
+    const k = Math.max(0.75, Math.min(1.6, w / 100)); // text size for the panel's width
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,10,26,0.78)';
+    roundRect(ctx, x, y, w, h, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const cx = x + w / 2;
+    const text = (t, ty, size, colour, weight = 800) => {
+      ctx.font = `${weight} ${Math.round(size * k)}px ${FONT}`;
+      ctx.fillStyle = colour;
+      ctx.fillText(t, cx, ty, w - 8);
+    };
+    let ty = y + 16 * k;
+    text('연습 모드', ty, 12, '#ffd84a', 900);
+    ty += 24 * k;
+    if (b.dead) {
+      text('막혔어요!', ty, 13, '#ff7a7a', 900);
+      text('↶ 로 되돌리거나', ty + 20 * k, 10, '#dfe4ff');
+      text('메뉴 → 처음부터', ty + 35 * k, 10, '#dfe4ff');
+    } else {
+      text('여기 놓으면', ty, 10, 'rgba(255,255,255,0.7)');
+      const n = this.previewChain(b);
+      text(n == null ? '-' : n ? `${n}연쇄!` : '연쇄 없음', ty + 20 * k, n ? 17 : 12, n >= 4 ? '#ff9a5a' : n ? '#ffd84a' : 'rgba(255,255,255,0.55)', 900);
+    }
+    ty += 64 * k;
+    text('최대 연쇄', ty, 10, 'rgba(255,255,255,0.7)');
+    text(`${b.maxChain ?? 0}`, ty + 19 * k, 16, '#fff', 900);
+    ty += 46 * k;
+    text('놓은 뿌요', ty, 10, 'rgba(255,255,255,0.7)');
+    text(`${Math.max(0, (b.history?.length ?? 1) - (b.phase === 'move' ? 1 : 0))}개`, ty + 19 * k, 14, '#fff', 900);
+    // How to play it, at the bottom.
+    const tips = ['저절로 안 떨어져요', '︾ 로 내려놓기', '↶ 되돌리기'];
+    tips.forEach((t, j) => text(t, y + h - (tips.length - j) * 14 * k - 4, 9, 'rgba(255,255,255,0.55)', 700));
+    ctx.restore();
+  }
+
+  // The chain the pair in hand would set off dropped where it is now; null without a pair.
+  previewChain(b) {
+    const p = b.piece;
+    if (b.phase !== 'move' || !p) return null;
+    const key = `${b.next}:${p.x}:${p.r}`;
+    if (this.preview?.key !== key) this.preview = { key, n: place(b.grid, p.x, p.r, p.a, p.b)?.chain ?? 0 };
+    return this.preview.n;
+  }
+
+  // Status bar in practice: my score on the left, the title in the middle, best chain on the right.
+  drawPracticeHud(ctx, match) {
+    const b = match.boards[0];
+    ctx.fillStyle = 'rgba(6,8,20,0.82)';
+    roundRect(ctx, BAR.x, BAR.y, BAR.w, BAR.h, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const mid = BAR.x + BAR.w / 2;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 18px ${FONT}`;
+    ctx.fillStyle = '#ffd84a';
+    ctx.fillText('연습 모드', mid, BAR.y + 20);
+    ctx.font = `700 10px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText('시간 · 상대 없음', mid, BAR.y + 41);
+    const gap = 66;
+    for (const [label, value, x, align] of [['점수', String(b.score), mid - gap, 'right'], ['최대 연쇄', String(b.maxChain ?? 0), mid + gap, 'left']]) {
+      ctx.textAlign = align;
+      ctx.font = `800 11px ${FONT}`;
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.fillText(label, x, BAR.y + 16);
+      this.hudText(ctx, value, x, BAR.y + 39, 20, align, '#fff', 0.8);
+    }
   }
 
   // "업적 달성" ribbon over a character while it lasts; false when there is none.
@@ -1070,9 +1160,11 @@ export class Renderer {
   // ---- status bar ------------------------------------------------------------------------
 
   // Play time; upright also both players' score, chain and best chain, and the rounds won.
+  // Practice: no time, just my score and best chain.
   drawHud(ctx, match) {
     const L = this.layout;
     const time = clock(match.playTime ?? 0);
+    if (match.practice) { if (L.hud) this.drawPracticeHud(ctx, match); return; }
     if (!L.hud) {
       // Wide: the time over the top border, in the middle.
       ctx.fillStyle = 'rgba(6,8,20,0.75)';
