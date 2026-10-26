@@ -43,6 +43,11 @@ console.log(`게임 코드 ${out('git rev-parse --short HEAD')} (최신)`);
 console.log('\n▶ 변환');
 run(`node puyo/tools/convert-assets.mjs "${assets}"`);
 console.log('\n▶ 빌드');
-run('npx webpack --config webpack.config.prod.js');
+// A fresh clone (or one whose packages changed) needs its build tools first.
+if (!fs.existsSync(path.join(root, 'node_modules', 'webpack-cli')) || !fs.existsSync(path.join(root, 'node_modules', 'webpack'))) {
+  console.log('빌드 도구 설치 (처음 한 번)');
+  run('npm install --no-audit --no-fund');
+}
+run('npm run build');
 console.log('\n▶ 배포');
 run('npm run deploy');
