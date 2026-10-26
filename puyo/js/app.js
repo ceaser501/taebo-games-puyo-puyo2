@@ -798,7 +798,8 @@ function renderLobby() {
   $('lobby-rounds').disabled = !lobby.host;
   $('lobby-bgm').value = lobby.bgm ?? 'arcade';
   $('lobby-bgm').disabled = !lobby.host;
-  $('lobby-settings').textContent = lobby.host ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} · 배경음악: ${BGM_NAMES[lobby.bgm ?? 'arcade']} (방장이 정해요)`;
+  // The friend shows the room's settings once the host has sent them.
+  $('lobby-settings').textContent = lobby.host || lobby.bgm == null ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} · 배경음악: ${BGM_NAMES[lobby.bgm ?? 'arcade']} (방장이 정해요)`;
   $('lobby-start').hidden = !lobby.host;
   $('lobby-start').disabled = lobby.guestState !== 'joined';
 }
