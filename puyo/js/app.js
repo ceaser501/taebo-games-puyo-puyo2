@@ -123,7 +123,7 @@ async function init() {
   $('bgm').value = store.get('puyo-bgm', 'arcade');
   for (const el of document.querySelectorAll('.bgm-pick')) el.hidden = !hasOgg();
   // Saved before the levels: easy / normal / hard.
-  const opp = store.get('puyo-opponent', '6');
+  const opp = store.get('puyo-opponent', '4');
   $('opponent').value = opp === '' ? '' : String(levelOf(opp));
   buildRoster();
   buildCharGrid();

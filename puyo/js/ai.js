@@ -6,24 +6,25 @@ import { Board, W, H, GARBAGE, DEATH_X, ROT, chainPower } from './board.js';
 const findPops = (grid) => Board.prototype.findPops(grid);
 
 // Levels 1-10, a small step each. every: frames between moves; think: frames before the first
-// move; soft: drops fast once in place; fire: smallest chain it sets off on purpose; noise: how
-// much it misjudges places; potential: how much it values chains waiting to be set off (0 never
-// builds them); look: also tries the next pair (for the best `look` places).
+// move; settle: frames it waits in place before dropping fast; fire: smallest chain it sets off
+// on purpose; noise: how much it misjudges places; potential: how much it values chains waiting
+// to be set off (0 never builds them); look: also tries the next pair (for the best `look` places).
+// From Lv4 on each step is small: Lv10 plays about like the first 'normal' did.
 export const LEVELS = [
   null,
-  { every: 18, think: 36, soft: false, fire: 2, noise: 45, potential: 0, look: 0 },
-  { every: 14, think: 30, soft: false, fire: 2, noise: 30, potential: 0, look: 0 }, // the old easy
-  { every: 12, think: 26, soft: false, fire: 2, noise: 22, potential: 0.25, look: 0 },
-  { every: 10, think: 22, soft: true, fire: 2, noise: 15, potential: 0.45, look: 0 },
-  { every: 8, think: 18, soft: true, fire: 3, noise: 9, potential: 0.7, look: 0 },
-  { every: 6, think: 14, soft: true, fire: 3, noise: 4, potential: 1, look: 0 }, // the old normal
-  { every: 5, think: 11, soft: true, fire: 4, noise: 2, potential: 1, look: 0 },
-  { every: 4, think: 9, soft: true, fire: 4, noise: 1, potential: 1, look: 3 },
-  { every: 3, think: 6, soft: true, fire: 5, noise: 0, potential: 1, look: 5 }, // the old hard
-  { every: 2, think: 4, soft: true, fire: 5, noise: 0, potential: 1.2, look: 8 },
+  { every: 18, think: 36, settle: 4, fire: 2, noise: 45, potential: 0, look: 0 },
+  { every: 14, think: 30, settle: 4, fire: 2, noise: 30, potential: 0, look: 0 },
+  { every: 12, think: 26, settle: 4, fire: 2, noise: 22, potential: 0.25, look: 0 },
+  { every: 11, think: 25, settle: 4, fire: 2, noise: 20, potential: 0.3, look: 0 },
+  { every: 10, think: 24, settle: 3, fire: 2, noise: 17, potential: 0.36, look: 0 },
+  { every: 10, think: 22, settle: 2, fire: 2, noise: 14, potential: 0.44, look: 0 },
+  { every: 9, think: 20, settle: 1, fire: 3, noise: 11, potential: 0.52, look: 0 },
+  { every: 8, think: 18, settle: 0, fire: 3, noise: 8, potential: 0.62, look: 0 },
+  { every: 7, think: 16, settle: 0, fire: 3, noise: 6, potential: 0.75, look: 0 },
+  { every: 6, think: 14, settle: 0, fire: 3, noise: 4, potential: 0.9, look: 0 },
 ];
 // Settings saved before there were levels.
-const OLD = { easy: 2, normal: 6, hard: 9 };
+const OLD = { easy: 2, normal: 8, hard: 10 };
 export const levelOf = (cpu) => {
   const n = OLD[cpu] ?? Number(cpu);
   return n >= 1 && n <= 10 ? Math.round(n) : 6;
@@ -209,6 +210,7 @@ export class Cpu {
       this.target = this.choose();
       this.wait = this.cfg.think;
       this.tries = 0;
+      this.settled = 0;
     }
     if (--this.wait > 0) return {};
     this.wait = this.cfg.every;
@@ -217,6 +219,6 @@ export class Cpu {
     if (p.r !== t.r) return { turn: (t.r - p.r + 4) % 4 === 3 ? -1 : 1 };
     if (p.x !== t.x) return { move: Math.sign(t.x - p.x) };
     this.wait = 0;
-    return { soft: this.cfg.soft || this.tries > 6 };
+    return { soft: ++this.settled > this.cfg.settle };
   }
 }
