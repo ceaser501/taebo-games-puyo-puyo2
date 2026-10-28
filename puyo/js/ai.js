@@ -9,19 +9,19 @@ const findPops = (grid) => Board.prototype.findPops(grid);
 // move; settle: frames it waits in place before dropping fast; fire: smallest chain it sets off
 // on purpose; noise: how much it misjudges places; potential: how much it values chains waiting
 // to be set off (0 never builds them); look: also tries the next pair (for the best `look` places).
-// From Lv4 on each step is small: Lv10 plays about like the first 'normal' did.
+// From Lv4 on each step is tiny, a little above Lv3 each time: Lv10 is still a gentle opponent.
 export const LEVELS = [
   null,
   { every: 18, think: 36, settle: 4, fire: 2, noise: 45, potential: 0, look: 0 },
   { every: 14, think: 30, settle: 4, fire: 2, noise: 30, potential: 0, look: 0 },
   { every: 12, think: 26, settle: 4, fire: 2, noise: 22, potential: 0.25, look: 0 },
-  { every: 11, think: 25, settle: 4, fire: 2, noise: 20, potential: 0.3, look: 0 },
-  { every: 10, think: 24, settle: 3, fire: 2, noise: 17, potential: 0.36, look: 0 },
-  { every: 10, think: 22, settle: 2, fire: 2, noise: 14, potential: 0.44, look: 0 },
-  { every: 9, think: 20, settle: 1, fire: 3, noise: 11, potential: 0.52, look: 0 },
-  { every: 8, think: 18, settle: 0, fire: 3, noise: 8, potential: 0.62, look: 0 },
-  { every: 7, think: 16, settle: 0, fire: 3, noise: 6, potential: 0.75, look: 0 },
-  { every: 6, think: 14, settle: 0, fire: 3, noise: 4, potential: 0.9, look: 0 },
+  { every: 12, think: 26, settle: 4, fire: 2, noise: 21, potential: 0.27, look: 0 },
+  { every: 12, think: 25, settle: 4, fire: 2, noise: 20, potential: 0.29, look: 0 },
+  { every: 11, think: 25, settle: 4, fire: 2, noise: 19, potential: 0.31, look: 0 },
+  { every: 11, think: 24, settle: 3, fire: 2, noise: 18, potential: 0.33, look: 0 },
+  { every: 11, think: 23, settle: 3, fire: 2, noise: 17, potential: 0.35, look: 0 },
+  { every: 10, think: 23, settle: 3, fire: 2, noise: 16, potential: 0.37, look: 0 },
+  { every: 10, think: 22, settle: 2, fire: 2, noise: 15, potential: 0.4, look: 0 },
 ];
 // Settings saved before there were levels.
 const OLD = { easy: 2, normal: 8, hard: 10 };
