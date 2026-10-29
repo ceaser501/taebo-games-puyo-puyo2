@@ -16,6 +16,10 @@ module.exports = merge(common, {
         { from: 'icon.svg', to: 'icon.svg' },
         { from: '404.html', to: '404.html' },
         { from: 'site.webmanifest', to: 'site.webmanifest' },
+        { from: 'icon-512.png', to: 'icon-512.png' },
+        { from: 'icon-maskable-512.png', to: 'icon-maskable-512.png' },
+        // Installing as an app needs a service worker (sw.js passes everything through).
+        { from: 'sw.js', to: 'sw.js' },
         // Puyo Puyo 2
         { from: 'puyo/index.html', to: 'puyo/index.html' },
         { from: 'puyo/css', to: 'puyo/css' },

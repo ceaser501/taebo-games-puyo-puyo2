@@ -1079,6 +1079,8 @@ if (touchDevice && canFullscreen && !standalone) {
   for (const id of ['menu-full', 'pause-full']) { $(id).hidden = false; $(id).onclick = enterFullscreen; }
 }
 if (isIOS && !standalone) $('ios-help').hidden = false;
+// Installable as an app (Chrome and Samsung Internet want a service worker for that).
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 if (/KAKAOTALK/i.test(ua)) {
   const openOutside = () => { location.href = `kakaotalk://web/openExternal?url=${encodeURIComponent(location.href)}`; };
