@@ -1,5 +1,5 @@
 // Two-player online matches relayed through a Supabase Realtime channel (broadcast + presence).
-// No accounts: the room number names the channel, presence tells who is in it, and every game
+// The room number names the channel, presence tells who is in it, and every game
 // message is a broadcast the other side receives. Results go to the puyo_results table.
 import { createClient } from '@supabase/supabase-js';
 
@@ -196,6 +196,61 @@ export async function fetchRanking(month = false) {
     .order('points', { ascending: false })
     .order('wins', { ascending: false })
     .limit(100);
+  if (error) throw error;
+  return data;
+}
+
+// ---- accounts and records ------------------------------------------------------------------
+// A name is the player's id; the password is asked once per phone. The server hands back a
+// token the phone keeps, and every later call uses that (see the puyo_* SQL functions).
+
+// Why signing in failed, in words for the player.
+const SIGN_IN_ERRORS = {
+  bad_name: '이름은 1~10자로 넣어 주세요.',
+  bad_pass: '비밀번호는 4자 이상으로 넣어 주세요.',
+  wrong_pass: '비밀번호가 맞지 않아요. 이미 있는 이름이면 그 이름의 비밀번호를 넣어 주세요.',
+  locked: '비밀번호를 여러 번 틀렸어요. 1분 뒤에 다시 해 주세요.',
+};
+export function signInErrorText(err) {
+  const key = Object.keys(SIGN_IN_ERRORS).find((k) => String(err?.message ?? err).includes(k));
+  return key ? SIGN_IN_ERRORS[key] : '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.';
+}
+
+// Signs in, or up when the name is new: { name, token, new }.
+export async function signIn(name, pass) {
+  const { data, error } = await realtime().rpc('puyo_login', { p_name: name, p_pass: pass });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+// { name, record } for this phone's token, or null when the server no longer knows it.
+export async function whoAmI(token) {
+  const { data, error } = await realtime().rpc('puyo_me', { p_token: token });
+  if (error) throw error;
+  return data;
+}
+
+export async function signOut(token) {
+  await realtime().rpc('puyo_logout', { p_token: token });
+}
+
+// One finished match: { kind: 'cpu' | 'online', level, won, chain, score, clears } -> { before, after }.
+export async function recordGame(token, { kind, level = null, won, chain, score, clears }) {
+  const { data, error } = await realtime().rpc('puyo_record_game', {
+    p_token: token, p_kind: kind, p_level: level, p_won: won, p_chain: chain, p_score: score, p_clears: clears,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// Everyone's records for the ranking tabs: by the highest level beaten, or the longest chain.
+export async function fetchRecords(by) {
+  let q = realtime().from('puyo_records').select('name, best_level, best_chain, best_score, cpu_wins, cpu_games, online_wins, online_games');
+  q = by === 'chain'
+    ? q.gt('best_chain', 0).order('best_chain', { ascending: false }).order('best_level', { ascending: false })
+    : q.gt('best_level', 0).order('best_level', { ascending: false }).order('best_chain', { ascending: false });
+  const { data, error } = await q.limit(100);
   if (error) throw error;
   return data;
 }

@@ -59,6 +59,20 @@
     <p id="intro-tap">불러오는 중…</p>
   </div>
 
+  <!-- Sign in once per phone: the name is the id. A new name signs up. -->
+  <div id="login" class="panel" hidden>
+    <div class="login-puyos" aria-hidden="true"><i data-puyo="R,0,0"></i><i data-puyo="Y,17,0"></i><i data-puyo="B,9,1"></i><i data-puyo="G,4,1"></i><i data-puyo="P,16,0"></i><i data-puyo="Y,10,1"></i></div>
+    <h1>뿌요뿌요 2에 오신 걸 환영해요</h1>
+    <p>이름이 아이디예요. 랭킹과 기록이 이 이름으로 쌓여요.</p>
+    <form id="login-form" autocomplete="on">
+      <label for="login-name">이름 (아이디)<input id="login-name" type="text" maxlength="10" autocomplete="username" required></label>
+      <label for="login-pass">비밀번호 (4자 이상)<input id="login-pass" type="password" maxlength="64" autocomplete="current-password" required></label>
+      <button type="submit" id="login-go" class="primary">시작하기</button>
+    </form>
+    <p id="login-error" role="alert"></p>
+    <p class="sub">처음 쓰는 이름이면 바로 가입되고, 이미 있는 이름이면 그 비밀번호로 들어가요. 한 번 들어온 폰에서는 다시 묻지 않아요.</p>
+  </div>
+
   <!-- Home: my character and records, then on to the game. -->
   <div id="home" hidden>
     <header class="title small">
@@ -69,7 +83,7 @@
       <div class="home-info">
         <span id="home-char"></span>
         <span id="home-title"></span>
-        <label class="home-name"><span>내 이름</span><input id="home-name" type="text" maxlength="10" placeholder="이름을 넣어 주세요" autocomplete="nickname"></label>
+        <div class="home-name"><span>내 이름</span><strong id="home-name"></strong><button type="button" id="home-switch" class="link">다른 이름으로</button></div>
         <dl id="home-stats">
           <div><dt>랭킹</dt><dd id="home-rank">-</dd></div>
           <div><dt>점수</dt><dd id="home-points">-</dd></div>
@@ -79,6 +93,7 @@
         <div class="home-actions">
           <button type="button" id="home-chars" class="chip">캐릭터 바꾸기</button>
           <button type="button" id="home-rank-open" class="chip rank">랭킹</button>
+          <button type="button" id="home-records" class="chip">내 기록</button>
           <button type="button" id="home-achieve" class="chip">업적</button>
         </div>
       </div>
@@ -100,7 +115,7 @@
     <p id="roster-note" class="sub"></p>
 
     <div class="menu-row">
-      <label>내 이름 <input id="player-name" type="text" maxlength="10" placeholder="나" autocomplete="nickname"></label>
+      <label>내 이름 <input id="player-name" type="text" maxlength="10" readonly></label>
       <label>상대
         <select id="opponent">
           <option value="1">컴퓨터 Lv1 · 입문</option>
@@ -231,14 +246,33 @@
     <button type="button" id="achieve-close">닫기</button>
   </div>
 
+  <div id="records" class="panel" hidden>
+    <h1>📒 내 기록</h1>
+    <p id="rec-who"></p>
+    <div class="rec-big">
+      <div><small>최고로 깬 레벨</small><strong id="rec-level">-</strong></div>
+      <div><small>최대 연쇄</small><strong id="rec-chain">-</strong></div>
+      <div><small>최고 점수</small><strong id="rec-score">-</strong></div>
+    </div>
+    <h2>컴퓨터 레벨별 전적</h2>
+    <div id="rec-levels"></div>
+    <p id="rec-other"></p>
+    <button type="button" id="records-close">닫기</button>
+  </div>
+
   <div id="ranking" class="panel" hidden>
     <h1>🏆 랭킹</h1>
+    <div id="rank-kind" class="seg">
+      <button type="button" data-kind="points">온라인 점수</button>
+      <button type="button" data-kind="level">깬 레벨</button>
+      <button type="button" data-kind="chain">최대 연쇄</button>
+    </div>
     <div id="rank-tabs" class="seg">
       <button type="button" data-month="1">이번 달</button>
       <button type="button" data-month="0">전체</button>
     </div>
     <ol id="rank-list"></ol>
-    <p class="rank-rule">온라인 1:1 승리 +3점 · 같은 이름이면 같은 사람으로 셉니다</p>
+    <p class="rank-rule" id="rank-rule"></p>
     <button type="button" id="rank-close">닫기</button>
   </div>
 
@@ -255,16 +289,24 @@
     <button type="button" id="quit">게임 나가기</button>
   </div>
 
+  <!-- Fireworks and party poppers behind the result when I won. -->
+  <canvas id="end-fx" hidden></canvas>
   <div id="end" class="panel" hidden>
+    <canvas id="end-art" hidden></canvas>
     <h1 id="end-title"></h1>
     <p id="end-note"></p>
+    <div id="end-record" hidden></div>
     <p id="end-achieve" hidden></p>
     <ol id="end-results" hidden></ol>
     <p id="end-saved"></p>
     <button id="end-rank" class="rank" hidden>랭킹 보기</button>
+    <button id="end-next" class="primary" hidden></button>
     <button id="again" class="primary">다시 하기</button>
-    <button id="to-lobby" hidden>대기실로</button>
-    <button id="to-menu">메뉴로</button>
+    <div class="end-row">
+      <button id="end-lower" hidden></button>
+      <button id="to-lobby" hidden>대기실로</button>
+      <button id="to-menu">메뉴로</button>
+    </div>
   </div>
 
   <div id="sfx" class="panel wide" hidden>

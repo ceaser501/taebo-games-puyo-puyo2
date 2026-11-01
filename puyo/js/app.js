@@ -3,7 +3,8 @@ import { Sound } from './sound.js';
 import { Match } from './game.js';
 import { Renderer } from './render.js';
 import { Pad, KEYMAPS } from './pad.js';
-import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking } from './net.js';
+import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking, signIn, signInErrorText, whoAmI, signOut, recordGame, fetchRecords } from './net.js';
+import { Fireworks } from './fireworks.js';
 import { randomSeed } from './rng.js';
 import { levelOf } from './ai.js';
 import * as achieve from './achieve.js';
@@ -36,6 +37,129 @@ const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* not remembered */ } },
 };
+
+// ---- account ---------------------------------------------------------------------------------
+// The name is the player's id. A phone signs in once (name + password) and keeps the server's
+// token, so it opens straight away after that. My record is kept with it, updated on this phone
+// at once and then by the server; games played offline wait in a queue and go up later.
+
+let account = null; // { name, token, record }
+try { account = JSON.parse(store.get('puyo-account', '') || 'null'); } catch { account = null; }
+const saveAccount = () => store.set('puyo-account', account ? JSON.stringify(account) : '');
+let pending = [];
+try { pending = JSON.parse(store.get('puyo-pending', '') || '[]'); } catch { pending = []; }
+const savePending = () => store.set('puyo-pending', JSON.stringify(pending.slice(-50)));
+
+// The same sums the server does (puyo_record_game), so the next result is right even offline.
+function addToRecord(rec, g) {
+  const r = { best_level: 0, best_chain: 0, best_score: 0, cpu: {}, cpu_games: 0, cpu_wins: 0, online_games: 0, online_wins: 0, all_clears: 0, ...rec };
+  r.cpu = { ...r.cpu };
+  if (g.kind === 'cpu') {
+    const cell = r.cpu[g.level] ?? { w: 0, l: 0 };
+    r.cpu[g.level] = { w: cell.w + (g.won ? 1 : 0), l: cell.l + (g.won ? 0 : 1) };
+    r.cpu_games++;
+    if (g.won) { r.cpu_wins++; r.best_level = Math.max(r.best_level, g.level); }
+  } else {
+    r.online_games++;
+    if (g.won) r.online_wins++;
+  }
+  r.best_chain = Math.max(r.best_chain, g.chain);
+  r.best_score = Math.max(r.best_score, g.score);
+  r.all_clears += g.clears;
+  return r;
+}
+
+function saveGame(g) {
+  account.record = addToRecord(account.record, g);
+  saveAccount();
+  pending.push(g);
+  savePending();
+  flushGames();
+}
+
+// Sends the queued games, oldest first; the server's record replaces the one kept here.
+let flushing = false;
+async function flushGames() {
+  if (flushing || !account || !pending.length) return;
+  flushing = true;
+  try {
+    while (pending.length && account) {
+      const res = await recordGame(account.token, pending[0]);
+      pending.shift();
+      savePending();
+      if (res?.after && account) { account.record = res.after; saveAccount(); }
+    }
+  } catch (err) {
+    if (String(err?.message).includes('not_signed_in')) signedOut('다른 곳에서 로그아웃됐어요. 다시 로그인해 주세요.');
+  } finally {
+    flushing = false;
+  }
+}
+
+// Checks this phone's token with the server (quietly; offline keeps the account as it is).
+async function refreshAccount() {
+  if (!account) return;
+  try {
+    const me = await whoAmI(account.token);
+    if (!me) { signedOut('다시 로그인해 주세요.'); return; }
+    if (!pending.length) account.record = me.record;
+    saveAccount();
+    flushGames();
+  } catch { /* offline */ }
+}
+
+function signedOut(message = '') {
+  account = null;
+  pending = [];
+  saveAccount();
+  savePending();
+  showLogin(message);
+}
+
+let afterLogin = null; // where to go once signed in
+function showLogin(message = '') {
+  for (const id of ['home', 'menu', 'lobby', 'end']) $(id).hidden = true;
+  $('login').hidden = false;
+  $('login-error').textContent = message;
+  $('login-name').value = $('login-name').value || store.get('puyo-name', '');
+  for (const el of document.querySelectorAll('#login [data-puyo]')) puyoStyle(el, 38);
+}
+$('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('login-name').value.trim(), pass = $('login-pass').value;
+  $('login-go').disabled = true;
+  $('login-error').textContent = '';
+  try {
+    const res = await signIn(name, pass);
+    account = { name: res.name, token: res.token, record: null };
+    try { account.record = (await whoAmI(res.token))?.record ?? null; } catch { /* filled in later */ }
+    saveAccount();
+    setName(res.name);
+    $('login-pass').value = '';
+    $('login').hidden = true;
+    const go = afterLogin ?? showHome;
+    afterLogin = null;
+    go();
+  } catch (err) {
+    $('login-error').textContent = signInErrorText(err);
+  } finally {
+    $('login-go').disabled = false;
+  }
+});
+$('home-switch').onclick = () => {
+  if (account) signOut(account.token).catch(() => {});
+  signedOut();
+};
+
+// A puyo from the 4x sheets as a CSS background: "R,0,0" is colour, frame column, frame row.
+function puyoStyle(el, size) {
+  const [c, fx, fy] = el.dataset.puyo.split(','), k = size / 32;
+  Object.assign(el.style, {
+    backgroundImage: `url("assets/p2/hd/GRP_PUYO_${c}.png")`,
+    backgroundSize: `${640 * k}px ${64 * k}px`,
+    backgroundPosition: `${-fx * 32 * k}px ${-fy * 32 * k}px`,
+  });
+}
 
 // ---- music modes ---------------------------------------------------------------------------
 // 오락실 모드: the original MIDI songs. 전장 모드: the OGG songs (assets/p2/bgm), each falling back
@@ -117,7 +241,7 @@ async function init() {
   pick.me = ROSTER.includes(me) ? me : 0;
   const cpu = store.get('puyo-cpu', 'random');
   pick.cpu = cpu === 'random' || !ROSTER.includes(Number(cpu)) ? 'random' : Number(cpu);
-  $('player-name').value = store.get('puyo-name', '');
+  $('player-name').value = account?.name ?? '';
   $('skin').value = store.get('puyo-skin', 'classic');
   $('rounds').value = store.get('puyo-rounds', '2');
   $('bgm').value = store.get('puyo-bgm', 'arcade');
@@ -161,6 +285,7 @@ function pickSetup() {
 
 // online: { me, host, send } for a friend match.
 async function start(setup = pickSetup(), online = null) {
+  fireworks.stop();
   ensureSound();
   $('start').disabled = true;
   $('start').textContent = '불러오는 중…';
@@ -205,27 +330,93 @@ async function start(setup = pickSetup(), online = null) {
   $('start').textContent = '시작';
 }
 
+// The result. When I played (not two on one keyboard): WIN or LOSE in the game's big letters,
+// what the match left in my record (levels beaten as stars, best chain and score), the win
+// fanfare with fireworks or the lose sound. Against the computer it also offers the next level
+// (after a win) or one lower (after a loss).
+const fireworks = new Fireworks($('end-fx'));
 function showEnd(winner) {
   const me = net ? lobby?.me : match?.players[1].cpu ? 0 : null;
-  let title = '무승부!';
-  if (winner >= 0) title = me != null ? (winner === me ? '승리!' : '패배…') : `${match.players[winner].name} 승리!`;
-  $('end-title').textContent = title;
+  const level = !net && match.players[1].cpu ? levelOf(match.players[1].cpu) : 0;
   const [a, b] = match.players;
-  $('end-note').textContent = `${a.name} ${a.wins} : ${b.wins} ${b.name}` + (net && !lobby?.host ? ' · 방장이 다시 시작하면 따라가요.' : '');
+  const mine = me != null ? match.players[me] : null;
+  const won = me != null && winner === me;
+  const art = me != null && winner >= 0 && renderer.wordArt($('end-art'), won ? 'WIN' : 'LOSE', won ? 3.4 : 3);
+  $('end-art').hidden = !art;
+  $('end-art').classList.toggle('lose', !won);
+  let title = '무승부!';
+  if (winner >= 0) title = me != null ? (won ? '승리!' : '패배…') : `${match.players[winner].name} 승리!`;
+  $('end-title').textContent = art ? '' : title;
+  $('end-title').hidden = !!art;
+  $('end-note').textContent = `${a.name} ${a.wins} : ${b.wins} ${b.name}` + (level ? ` · Lv${level}` : '') + (net && !lobby?.host ? ' · 방장이 다시 시작하면 따라가요.' : '');
   $('again').hidden = !!net && (!lobby?.host || !net.connected);
   $('to-lobby').hidden = !net || !lobby?.host;
   $('end-results').hidden = true;
   $('end-rank').hidden = !net;
   $('end-saved').textContent = net ? '랭킹에 기록하는 중…' : '';
   // My record for the achievements (not for two players on one keyboard).
-  const fresh = me != null ? achieve.matchDone({ won: winner === me, online: !!net, level: match.players[1].cpu ? levelOf(match.players[1].cpu) : 0 }) : [];
+  const fresh = me != null ? achieve.matchDone({ won, online: !!net, level }) : [];
   $('end-achieve').hidden = !fresh.length;
-  $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((a) => `[${a.title}]`).join(' ')}` : '';
+  $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((x) => `[${x.title}]`).join(' ')}` : '';
+  showRecord(mine && winner >= 0 ? { won, level, chain: mine.best, score: mine.score } : null);
+  // Next level / one lower, against the computer.
+  const next = level && won && level < 10 ? level + 1 : 0, lower = level && !won && winner >= 0 && level > 1 ? level - 1 : 0;
+  $('end-next').hidden = !next;
+  $('end-next').textContent = next ? `Lv${next} 도전하기` : '';
+  $('end-next').onclick = () => playLevel(next);
+  $('end-lower').hidden = !lower;
+  $('end-lower').textContent = lower ? `Lv${lower}로 낮추기` : '';
+  $('end-lower').onclick = () => playLevel(lower);
+  $('again').textContent = level && !won && winner >= 0 ? `Lv${level} 다시 도전` : '다시 하기';
+  $('again').classList.toggle('primary', !next);
   closeEmo();
   $('end').hidden = false;
   setTouch(false);
+  if (me != null && winner >= 0) {
+    sound?.stopMusic();
+    sound?.jingle(won ? 'WIN' : 'LOSE');
+    if (won) fireworks.start();
+  }
+  if (mine && account) saveGame({ kind: net ? 'online' : 'cpu', level: level || null, won, chain: mine.best, score: mine.score, clears: mine.clears ?? 0 });
   if (net && lobby?.host) finishOnline(winner);
   else if (lastResult?.id === lastMatchId) showResult(lastResult);
+}
+
+// What the match left in my record, against my record before it (kept with the account).
+function showRecord(r) {
+  const box = $('end-record');
+  box.hidden = !r;
+  if (!r) return;
+  const before = account?.record ?? {};
+  const bestChain = before.best_chain ?? 0, bestScore = before.best_score ?? 0;
+  const beaten = (lv) => (before.cpu?.[lv]?.w ?? 0) > 0;
+  const chip = (label, value, unit, note, up) => `<div><small>${label}</small><strong>${value}${unit ? `<u>${unit}</u>` : ''}</strong><em class="${up ? 'up' : ''}">${note}</em></div>`;
+  const chain = chip('최대 연쇄', r.chain, '연쇄', r.chain > bestChain ? '▲ 내 최고 기록' : `내 최고 ${bestChain}연쇄`, r.chain > bestChain);
+  const score = chip('점수', r.score.toLocaleString('ko-KR'), '', r.score > bestScore ? '▲ 최고 점수' : `최고 ${bestScore.toLocaleString('ko-KR')}`, r.score > bestScore);
+  box.classList.toggle('grey', !r.won);
+  if (r.level && r.won) {
+    const isNew = !beaten(r.level);
+    let stars = '';
+    for (let lv = 1; lv <= 10; lv++) {
+      const on = lv === r.level || beaten(lv);
+      stars += `<span class="${on ? '' : 'off'}${lv === r.level ? ' now' : ''}${lv === r.level + 1 && !beaten(lv) ? ' next' : ''}"><i></i><b>${lv}</b></span>`;
+    }
+    box.innerHTML = `<div class="rec-head"><span class="rec-title">Lv${r.level} 클리어!</span>${isNew ? '<span class="rec-new">NEW</span>' : ''}</div><div class="rec-chips">${chain}${score}</div><div class="rec-stars" aria-label="깬 레벨">${stars}</div>`;
+    for (const i of box.querySelectorAll('.rec-stars i')) renderer.starStyle(i, 22);
+  } else if (r.level) {
+    const best = before.best_level ?? 0;
+    box.innerHTML = `<div class="rec-chips">${chip('최고로 깬 레벨', best ? `Lv${best}` : '-', '', '그대로', false)}${chip('이번 최대 연쇄', r.chain, '연쇄', `내 최고 ${bestChain}연쇄`, false)}</div>`;
+  } else {
+    box.innerHTML = `<div class="rec-chips">${chain}${score}</div>`;
+  }
+}
+
+// Plays the computer again at another level (from the result).
+function playLevel(n) {
+  if (!n || !lastSetup) return;
+  $('opponent').value = String(n);
+  store.set('puyo-opponent', String(n));
+  start({ ...lastSetup, players: [lastSetup.players[0], { ...lastSetup.players[1], cpu: String(n) }] });
 }
 
 // ---- online results ------------------------------------------------------------------------
@@ -284,6 +475,7 @@ function showResult(result) {
 }
 
 function toMenu() {
+  fireworks.stop();
   closePause();
   leaveOnline();
   match = null;
@@ -311,9 +503,11 @@ function leaveIntro() {
   $('intro').hidden = true;
   ensureSound();
   playMenuSong();
-  // Arriving from an invite goes straight to joining.
-  if (invited) $('menu').hidden = false;
-  else showHome();
+  // Arriving from an invite goes straight to joining (after signing in, the first time).
+  const go = invited ? () => { $('menu').hidden = false; } : showHome;
+  if (!account) { afterLogin = go; showLogin(); return; }
+  go();
+  refreshAccount();
 }
 $('intro').addEventListener('pointerup', leaveIntro);
 window.addEventListener('keydown', (e) => { if (!$('intro').hidden && (e.key === 'Enter' || e.key === ' ')) leaveIntro(); });
@@ -321,11 +515,11 @@ window.addEventListener('keydown', (e) => { if (!$('intro').hidden && (e.key ===
 async function showHome() {
   $('menu').hidden = true;
   $('home').hidden = false;
-  $('home-name').value = $('player-name').value;
+  $('home-name').textContent = account?.name ?? '';
   $('home-figure').style.backgroundImage = figureUrl(pick.me);
   $('home-char').textContent = charName(pick.me);
   $('home-title').textContent = achieve.title() ? `[${achieve.title()}]` : '';
-  const name = $('home-name').value.trim();
+  const name = account?.name ?? '';
   for (const id of ['home-rank', 'home-points', 'home-record', 'home-chain']) $(id).textContent = '-';
   if (!name) return;
   try {
@@ -343,10 +537,8 @@ function setName(name) {
   $('player-name').value = name;
   store.set('puyo-name', name);
 }
-$('home-name').addEventListener('change', () => { setName($('home-name').value); showHome(); });
-$('player-name').addEventListener('change', () => setName($('player-name').value));
 $('home-play').onclick = () => {
-  setName($('home-name').value || $('player-name').value);
+  if (account) setName(account.name);
   $('home').hidden = true;
   $('menu').hidden = false;
   renderRoster();
@@ -394,16 +586,29 @@ $('chars-done').onclick = () => {
 
 // ---- ranking -------------------------------------------------------------------------------
 
+// Three lists: online points (this month or all time), the highest computer level beaten, and
+// the longest chain (both from everyone's records).
 let rankMonth = true;
+let rankKind = 'points';
+const RANK_RULES = {
+  points: '온라인 1:1 승리 +3점',
+  level: '컴퓨터를 이긴 가장 높은 레벨 · 같으면 최대 연쇄가 큰 사람이 위',
+  chain: '컴퓨터·온라인 대전에서 한 가장 긴 연쇄 (연습 모드 빼고)',
+};
 async function showRanking() {
   $('ranking').hidden = false;
+  for (const b of $('rank-kind').children) b.classList.toggle('on', b.dataset.kind === rankKind);
   for (const b of $('rank-tabs').children) b.classList.toggle('on', (b.dataset.month === '1') === rankMonth);
+  $('rank-tabs').hidden = rankKind !== 'points';
+  $('rank-rule').textContent = RANK_RULES[rankKind];
   const list = $('rank-list');
   list.innerHTML = '<li class="empty">불러오는 중…</li>';
+  const kind = rankKind;
   try {
-    const rows = await fetchRanking(rankMonth);
+    const rows = kind === 'points' ? await fetchRanking(rankMonth) : await fetchRecords(kind);
+    if (kind !== rankKind) return;
     list.innerHTML = '';
-    if (!rows.length) list.innerHTML = '<li class="empty">아직 기록이 없어요. 온라인 대전에서 이기면 올라가요.</li>';
+    if (!rows.length) list.innerHTML = `<li class="empty">${kind === 'points' ? '아직 기록이 없어요. 온라인 대전에서 이기면 올라가요.' : '아직 기록이 없어요.'}</li>`;
     const me = myName();
     rows.forEach((r, i) => {
       const li = document.createElement('li');
@@ -411,14 +616,51 @@ async function showRanking() {
       li.innerHTML = '<span class="pos"></span><b></b><em></em><small></small>';
       li.querySelector('.pos').textContent = ['🥇', '🥈', '🥉'][i] ?? `${i + 1}`;
       li.querySelector('b').textContent = r.name;
-      li.querySelector('em').textContent = `${r.points}점`;
-      li.querySelector('small').textContent = `${r.wins}승 ${r.games - r.wins}패${r.best_chain ? ` · 최대 ${r.best_chain}연쇄` : ''}`;
+      if (kind === 'points') {
+        li.querySelector('em').textContent = `${r.points}점`;
+        li.querySelector('small').textContent = `${r.wins}승 ${r.games - r.wins}패${r.best_chain ? ` · 최대 ${r.best_chain}연쇄` : ''}`;
+      } else if (kind === 'level') {
+        li.querySelector('em').textContent = `Lv${r.best_level}`;
+        li.querySelector('small').textContent = `최대 ${r.best_chain}연쇄 · 컴퓨터 ${r.cpu_wins}승`;
+      } else {
+        li.querySelector('em').textContent = `${r.best_chain}연쇄`;
+        li.querySelector('small').textContent = `${r.best_level ? `Lv${r.best_level}까지 깸 · ` : ''}최고 ${r.best_score.toLocaleString('ko-KR')}점`;
+      }
       list.append(li);
     });
   } catch {
     list.innerHTML = '<li class="empty">랭킹을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</li>';
   }
 }
+for (const b of $('rank-kind').children) b.onclick = () => { rankKind = b.dataset.kind; showRanking(); };
+
+// My records: the highest level beaten, best chain and score, and wins and losses per level.
+// Shown from what this phone keeps, then again with the server's numbers.
+function showRecords() {
+  renderRecords();
+  $('records').hidden = false;
+  refreshAccount().then(() => { if (!$('records').hidden) renderRecords(); });
+}
+function renderRecords() {
+  const r = account?.record ?? {};
+  $('rec-who').textContent = `${achieve.title() ? `[${achieve.title()}] ` : ''}${account?.name ?? ''} · ${charName(pick.me)}`;
+  $('rec-level').textContent = r.best_level ? `Lv${r.best_level}` : '-';
+  $('rec-chain').innerHTML = r.best_chain ? `${r.best_chain}<u>연쇄</u>` : '-';
+  $('rec-score').textContent = r.best_score ? r.best_score.toLocaleString('ko-KR') : '-';
+  const box = $('rec-levels');
+  box.innerHTML = '';
+  for (let lv = 1; lv <= 10; lv++) {
+    const c = r.cpu?.[lv];
+    const d = document.createElement('div');
+    d.className = c?.w ? 'clear' : c?.l ? 'try' : '';
+    d.innerHTML = `<b>${lv}${c?.w ? '<i style="background: none; color: var(--accent); font-style: normal; width: auto; height: auto; font-size: 11px">★</i>' : ''}</b><span>${c ? `${c.w}승 ${c.l}패` : '-'}</span>`;
+    box.append(d);
+  }
+  const got = achieve.ACHIEVEMENTS.filter((a) => achieve.earned(a.id)).length;
+  $('rec-other').textContent = `온라인 ${r.online_games ?? 0}판 ${r.online_wins ?? 0}승 · 컴퓨터 ${r.cpu_games ?? 0}판 ${r.cpu_wins ?? 0}승 · 전부 지우기 ${r.all_clears ?? 0}번 · 업적 ${got}/${achieve.ACHIEVEMENTS.length}` + (pending.length ? ` · 아직 안 올라간 기록 ${pending.length}판` : '');
+}
+$('home-records').onclick = showRecords;
+$('records-close').onclick = () => { $('records').hidden = true; };
 $('rank-open').onclick = showRanking;
 
 // Achievements: all of them, the earned ones lit, the title worn marked.
@@ -597,7 +839,11 @@ function onFx(m, i, e) {
       if (earn) fresh = achieve.chainDone(e.chain);
       break;
     case 'garbage': if (e.n >= 6) buzz([30, 30, 50]); break;
-    case 'allClear': buzz([40, 40, 40, 40, 80]); if (earn) fresh = achieve.allClear(); break;
+    case 'allClear':
+      buzz([40, 40, 40, 40, 80]);
+      m.players[i].clears = (m.players[i].clears ?? 0) + 1;
+      if (earn) fresh = achieve.allClear();
+      break;
     case 'dead': buzz(220); break;
   }
   if (!fresh.length) return;
@@ -771,6 +1017,7 @@ function onlineName() {
 }
 
 function showLobby() {
+  fireworks.stop();
   match = null;
   // A title won in the last match shows in the lobby too.
   const t = achieve.title();

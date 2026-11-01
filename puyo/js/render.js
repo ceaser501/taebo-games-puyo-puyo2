@@ -378,6 +378,35 @@ export class Renderer {
     return w;
   }
 
+  // A word in the original big pink letters on a canvas of its own (the result's WIN / LOSE);
+  // false before the letters have loaded.
+  wordArt(canvas, text, scale) {
+    if (!this.ry) return false;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const w = text.length * 16 * scale, h = 32 * scale;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, w, h);
+    this.glyphs(ctx, text, 0, 0, 'big', 'left', scale);
+    return true;
+  }
+
+  // A star from the original sheet, as a CSS background for an element `size` px square.
+  starStyle(el, size) {
+    if (!this.ry) return;
+    const [sx, sy, sw] = RY.star, k = size / sw, img = this.ry.img;
+    Object.assign(el.style, {
+      backgroundImage: `url("${img.src}")`,
+      backgroundSize: `${(img.width / this.ry.scale) * k}px ${(img.height / this.ry.scale) * k}px`,
+      backgroundPosition: `${-sx * k}px ${-sy * k}px`,
+    });
+  }
+
   // ---- effects ----------------------------------------------------------------------------
 
   // A board event (from the match): a chain step shakes its field harder the longer the chain and

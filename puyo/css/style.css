@@ -495,6 +495,64 @@ body.touch .keys {
   text-align: center;
 }
 
+/* ---- result: WIN / LOSE in the game's own big letters, what the match left in my record ---- */
+
+#end { overflow: visible; }
+#end-art {
+  align-self: center;
+  margin-top: -64px;
+  animation: end-bounce 1.2s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(255, 210, 80, 0.75)) drop-shadow(0 4px 0 rgba(0, 0, 0, 0.5));
+}
+#end-art.lose {
+  filter: grayscale(1) brightness(0.85) drop-shadow(0 4px 0 rgba(0, 0, 0, 0.5));
+  animation: end-sag 2.6s ease-in-out infinite;
+}
+@keyframes end-bounce { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-9px) rotate(2deg); } }
+@keyframes end-sag { 50% { transform: translateY(4px) rotate(-2deg); } }
+#end-fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+
+#end-record {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  border-radius: 12px;
+  background: rgba(255, 207, 58, 0.1);
+  border: 1px solid rgba(255, 207, 58, 0.45);
+}
+#end-record.grey { background: rgba(255, 255, 255, 0.05); border-color: var(--line); }
+.rec-head { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.rec-title { font-size: 20px; font-weight: 900; color: var(--accent); }
+.rec-new {
+  font-size: 11px;
+  font-weight: 900;
+  color: #0b2a1c;
+  background: #4be3a4;
+  border-radius: 99px;
+  padding: 1px 8px;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse { 50% { transform: scale(1.12); } }
+.rec-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.rec-chips div { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); }
+.rec-chips small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.rec-chips strong { font-size: 24px; font-weight: 900; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.rec-chips strong u { text-decoration: none; font-size: 14px; color: var(--accent); margin-left: 1px; }
+.rec-chips em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--muted); }
+.rec-chips em.up { color: #4be3a4; }
+.rec-stars { display: flex; justify-content: space-between; padding: 0 2px 12px; }
+.rec-stars span { position: relative; width: 24px; height: 24px; display: grid; place-items: center; }
+.rec-stars span i { width: 22px; height: 22px; background-repeat: no-repeat; image-rendering: pixelated; }
+.rec-stars span.off i { filter: grayscale(1) brightness(0.45); }
+.rec-stars span.now { animation: rec-pulse 1s ease-in-out infinite; }
+.rec-stars span.next::after { content: ""; position: absolute; inset: 0; border: 1.5px dashed var(--accent); border-radius: 50%; }
+.rec-stars span b { position: absolute; bottom: -13px; font-size: 10px; color: var(--muted); }
+.end-row { display: flex; gap: 8px; }
+.end-row button { flex: 1; }
+#end-achieve { text-align: center; color: var(--accent) !important; font-weight: 800; }
+@media (prefers-reduced-motion: reduce) { #end-art, .rec-new, .rec-stars span.now { animation: none; } }
+
 /* ---- sound board ---- */
 
 #sfx-list {
@@ -761,18 +819,50 @@ body.touch .keys {
   color: var(--muted);
 }
 
-.home-name input {
-  font: inherit;
-  font-size: 16px;
-  font-weight: 800;
+#home-name {
+  font-size: 18px;
+  font-weight: 900;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 10px;
-  outline: none;
-  min-width: 0;
 }
+
+button.link {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- sign in ---- */
+
+#login { z-index: 4; }
+#login form { display: flex; flex-direction: column; gap: 10px; }
+#login label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+#login-error { color: var(--red) !important; text-align: center; font-weight: 700; }
+#login-error:empty { display: none; }
+.login-puyos { display: flex; justify-content: center; gap: 4px; }
+.login-puyos i {
+  width: 38px;
+  height: 38px;
+  background-repeat: no-repeat;
+  animation: puyo-hop 0.9s ease-in-out infinite;
+}
+.login-puyos i:nth-child(2) { animation-delay: 0.12s; }
+.login-puyos i:nth-child(3) { animation-delay: 0.24s; }
+.login-puyos i:nth-child(4) { animation-delay: 0.36s; }
+.login-puyos i:nth-child(5) { animation-delay: 0.48s; }
+.login-puyos i:nth-child(6) { animation-delay: 0.6s; }
+@keyframes puyo-hop {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  35% { transform: translateY(-10px) scale(0.95, 1.05); }
+  70% { transform: translateY(0) scale(1.08, 0.9); }
+}
+@media (prefers-reduced-motion: reduce) { .login-puyos i { animation: none; } }
 
 #home-stats {
   display: grid;
@@ -1106,8 +1196,23 @@ body.touch .keys {
   white-space: nowrap;
 }
 
-#end-achieve {
-  text-align: center;
-  color: #ffd84a;
-  font-weight: 800;
-}
+
+/* ---- my records ---- */
+
+#records { z-index: 4; }
+#rec-who { text-align: center; }
+.rec-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.rec-big div { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+.rec-big small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.rec-big strong { font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.rec-big strong u { text-decoration: none; font-size: 12px; color: var(--accent); }
+#rec-levels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+#rec-levels div { text-align: center; padding: 5px 2px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+#rec-levels b { display: flex; justify-content: center; align-items: center; gap: 2px; font-size: 14px; }
+#rec-levels b i { width: 12px; height: 12px; background-repeat: no-repeat; image-rendering: pixelated; }
+#rec-levels span { display: block; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#rec-levels .clear { background: rgba(255, 207, 58, 0.12); border-color: rgba(255, 207, 58, 0.5); }
+#rec-levels .try { border-style: dashed; border-color: var(--red); }
+#rank-kind { align-self: stretch; }
+#rank-kind button { flex: 1; }
+#login h1 { font-size: 19px; text-wrap: balance; }

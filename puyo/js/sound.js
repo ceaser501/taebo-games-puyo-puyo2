@@ -2,7 +2,7 @@
 // the first tap). The sound banks have no names, so which clip is which was picked by length and
 // shape: the seven chain pops are PUYO01_02-08, rising in pitch. `?sfx` on the page lists every
 // clip to listen to.
-import { sfxUrl, musicUrl, bgmUrl } from './assets.js';
+import { sfxUrl, musicUrl, bgmUrl, jingleUrl } from './assets.js';
 import { parseMidi, MidiPlayer } from './midi.js';
 
 const SFX = {
@@ -87,6 +87,20 @@ export class Sound {
       node = node.connect(p);
     }
     node.connect(this.master);
+    src.start();
+  }
+
+  // A result sound (WIN, LOSE) over everything; the music stops for it.
+  async jingle(id) {
+    this.buffers[`jingle:${id}`] ??= fetch(jingleUrl(id))
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((b) => b && new Promise((res) => this.ctx.decodeAudioData(b, res, () => res(null))))
+      .catch(() => null);
+    const buf = await this.buffers[`jingle:${id}`];
+    if (!buf || this.ctx.state !== 'running') return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.master);
     src.start();
   }
 

@@ -98,5 +98,17 @@ if (fs.existsSync(bgmDir)) {
   }
 }
 
+// Result sounds (WIN, LOSE) from SFX/, as they are.
+const sfxDir = path.join(root, 'SFX');
+manifest.jingles = [];
+if (fs.existsSync(sfxDir)) {
+  fs.mkdirSync(path.join(out, 'jingle'), { recursive: true });
+  for (const f of fs.readdirSync(sfxDir).filter((n) => /\.mp3$/i.test(n)).sort()) {
+    const id = path.basename(f, path.extname(f)).toUpperCase();
+    fs.copyFileSync(path.join(sfxDir, f), path.join(out, 'jingle', `${id}.mp3`));
+    manifest.jingles.push(id);
+  }
+}
+
 fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest));
 console.log(`Wrote ${pictures.length} pictures (${Object.keys(manifest.hd).length + manifest.faces.length} also 4x), ${clips} sounds, ${manifest.music.length} songs, ${manifest.bgm.length} OGG songs to ${out}`);
