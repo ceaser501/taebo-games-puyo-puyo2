@@ -175,6 +175,17 @@ function gameSongs(mode) {
   return manifest.bgm.map((id, k) => oggSong(id, arcade[k % arcade.length]));
 }
 const BGM_NAMES = { arcade: '오락실 모드', battle: '전장 모드' };
+// How much more often a 전장 모드 song comes up than the others (1 when not listed): the ones
+// players remember best (There's Something About Supertank, Once in A Lifetime, Be Higher,
+// Egyptian Rule) once it is known which file each is.
+const BGM_WEIGHTS = {};
+// A song for a game, the favourites more often; `r` (0-1) picks it, the same on both phones online.
+function pickSong(songs, r) {
+  const weights = songs.map((s) => (s.ogg ? BGM_WEIGHTS[s.id] ?? 1 : 1));
+  let x = r * weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < songs.length; i++) if ((x -= weights[i]) < 0) return songs[i];
+  return songs[songs.length - 1];
+}
 
 function ensureSound() {
   sound ??= new Sound();
@@ -325,7 +336,7 @@ async function start(setup = pickSetup(), online = null) {
   setTouch(touchDevice);
   // Online both pick the same song, from the match's seed.
   const songs = gameSongs(setup.bgm);
-  sound.playSong(songs[online ? online.seed % songs.length : Math.floor(Math.random() * songs.length)]);
+  sound.playSong(pickSong(songs, online ? (online.seed % 10007) / 10007 : Math.random()));
   $('start').disabled = false;
   $('start').textContent = '시작';
 }
@@ -985,6 +996,14 @@ function showSfxBoard() {
     b.type = 'button';
     b.textContent = song.id.replace('PUYO2_', '').replace('NAZOP_', 'N');
     b.onclick = () => ensureSound().playSong(song);
+    row.append(b);
+  }
+  // 전장 모드 songs, numbered as in the data (F2_01 is 1).
+  for (const id of manifest.bgm ?? []) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `전장${Number(id.slice(3))}`;
+    b.onclick = () => ensureSound().playSong(oggSong(id, null));
     row.append(b);
   }
   const stop = Object.assign(document.createElement('button'), { type: 'button', textContent: '■' });

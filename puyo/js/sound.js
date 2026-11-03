@@ -24,8 +24,9 @@ const voice = (id, kind) => `VOIC${String(id).padStart(2, '0')}${kind}_00`;
 
 const KEY = 'puyo-music';
 const MUSIC_VOLUME = 0.32;
-// The OGG songs are mastered much louder than the synth plays the MIDI ones.
-const OGG_VOLUME = 0.55;
+// The OGG songs (전장 모드), set to sit at about the level of the sound effects on a phone
+// speaker: at 0.55 they came out some 8 dB under them and were hard to hear.
+const OGG_VOLUME = 1.15;
 
 export class Sound {
   constructor() {
