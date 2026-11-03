@@ -360,7 +360,7 @@ function showEnd(winner) {
   $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((x) => `[${x.title}]`).join(' ')}` : '';
   showRecord(mine && winner >= 0 ? { won, level, chain: mine.best, score: mine.score } : null);
   // Next level / one lower, against the computer.
-  const next = level && won && level < 10 ? level + 1 : 0, lower = level && !won && winner >= 0 && level > 1 ? level - 1 : 0;
+  const next = level && won && level < 20 ? level + 1 : 0, lower = level && !won && winner >= 0 && level > 1 ? level - 1 : 0;
   $('end-next').hidden = !next;
   $('end-next').textContent = next ? `Lv${next} 도전하기` : '';
   $('end-next').onclick = () => playLevel(next);
@@ -397,7 +397,7 @@ function showRecord(r) {
   if (r.level && r.won) {
     const isNew = !beaten(r.level);
     let stars = '';
-    for (let lv = 1; lv <= 10; lv++) {
+    for (let lv = 1; lv <= 20; lv++) {
       const on = lv === r.level || beaten(lv);
       stars += `<span class="${on ? '' : 'off'}${lv === r.level ? ' now' : ''}${lv === r.level + 1 && !beaten(lv) ? ' next' : ''}"><i></i><b>${lv}</b></span>`;
     }
@@ -649,7 +649,7 @@ function renderRecords() {
   $('rec-score').textContent = r.best_score ? r.best_score.toLocaleString('ko-KR') : '-';
   const box = $('rec-levels');
   box.innerHTML = '';
-  for (let lv = 1; lv <= 10; lv++) {
+  for (let lv = 1; lv <= 20; lv++) {
     const c = r.cpu?.[lv];
     const d = document.createElement('div');
     d.className = c?.w ? 'clear' : c?.l ? 'try' : '';

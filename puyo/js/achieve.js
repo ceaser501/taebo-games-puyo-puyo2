@@ -22,9 +22,10 @@ export const ACHIEVEMENTS = [
   { id: 'wins50', title: '뿌요 고수', desc: '50번 이기기', rank: 14, test: (s) => s.wins >= 50 },
   { id: 'streak10', title: '무적', desc: '10연승', rank: 15, test: (s) => s.bestStreak >= 10 },
   { id: 'chain10', title: '전설의 연쇄왕', desc: '10연쇄 하기', rank: 16, test: (s) => s.bestChain >= 10 },
+  { id: 'lv20', title: '뿌요 마스터', desc: '컴퓨터 Lv20 이기기', rank: 17, test: (s) => s.lv20Wins >= 1 },
 ];
 
-const blank = () => ({ games: 0, wins: 0, streak: 0, bestStreak: 0, bestChain: 0, allClears: 0, onlineWins: 0, hardWins: 0 });
+const blank = () => ({ games: 0, wins: 0, streak: 0, bestStreak: 0, bestChain: 0, allClears: 0, onlineWins: 0, hardWins: 0, lv20Wins: 0 });
 
 function load() {
   try {
@@ -81,6 +82,7 @@ export function matchDone({ won, online, level = 0 }) {
     s.bestStreak = Math.max(s.bestStreak, s.streak);
     if (online) s.onlineWins++;
     if (level >= 9) s.hardWins++;
+    if (level >= 20) s.lv20Wins++;
   } else s.streak = 0;
   return check();
 }

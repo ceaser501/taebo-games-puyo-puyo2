@@ -5,11 +5,13 @@ import { Board, W, H, GARBAGE, DEATH_X, ROT, chainPower } from './board.js';
 
 const findPops = (grid) => Board.prototype.findPops(grid);
 
-// Levels 1-10, a small step each. every: frames between moves; think: frames before the first
+// Levels 1-20, a small step each. every: frames between moves; think: frames before the first
 // move; settle: frames it waits in place before dropping fast; fire: smallest chain it sets off
 // on purpose; noise: how much it misjudges places; potential: how much it values chains waiting
 // to be set off (0 never builds them); look: also tries the next pair (for the best `look` places).
-// From Lv4 on each step is tiny, a little above Lv3 each time: Lv10 is still a gentle opponent.
+// From Lv4 to Lv10 each step is tiny, a little above Lv3 each time: Lv10 is still gentle. From
+// Lv11 it speeds up, builds longer chains and waits for bigger ones, up to Lv20 which also looks
+// at the next pair (about the strongest the computer gets).
 export const LEVELS = [
   null,
   { every: 18, think: 36, settle: 4, fire: 2, noise: 45, potential: 0, look: 0 },
@@ -22,12 +24,22 @@ export const LEVELS = [
   { every: 11, think: 23, settle: 3, fire: 2, noise: 17, potential: 0.35, look: 0 },
   { every: 10, think: 23, settle: 3, fire: 2, noise: 16, potential: 0.37, look: 0 },
   { every: 10, think: 22, settle: 2, fire: 2, noise: 15, potential: 0.4, look: 0 },
+  { every: 10, think: 21, settle: 2, fire: 2, noise: 14, potential: 0.44, look: 0 },
+  { every: 9, think: 20, settle: 1, fire: 2, noise: 12, potential: 0.5, look: 0 },
+  { every: 9, think: 19, settle: 1, fire: 3, noise: 10, potential: 0.56, look: 0 },
+  { every: 8, think: 17, settle: 1, fire: 3, noise: 8, potential: 0.64, look: 0 },
+  { every: 7, think: 15, settle: 0, fire: 3, noise: 6, potential: 0.72, look: 0 },
+  { every: 6, think: 13, settle: 0, fire: 3, noise: 4, potential: 0.82, look: 0 },
+  { every: 5, think: 11, settle: 0, fire: 4, noise: 3, potential: 0.92, look: 0 },
+  { every: 4, think: 9, settle: 0, fire: 4, noise: 2, potential: 1, look: 3 },
+  { every: 3, think: 7, settle: 0, fire: 4, noise: 1, potential: 1, look: 5 },
+  { every: 2, think: 5, settle: 0, fire: 5, noise: 0, potential: 1.1, look: 8 },
 ];
 // Settings saved before there were levels.
 const OLD = { easy: 2, normal: 8, hard: 10 };
 export const levelOf = (cpu) => {
   const n = OLD[cpu] ?? Number(cpu);
-  return n >= 1 && n <= 10 ? Math.round(n) : 6;
+  return n >= 1 && n <= 20 ? Math.round(n) : 6;
 };
 
 function gravity(g) {

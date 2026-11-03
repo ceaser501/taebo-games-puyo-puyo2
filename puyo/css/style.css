@@ -541,7 +541,7 @@ body.touch .keys {
 .rec-chips strong u { text-decoration: none; font-size: 14px; color: var(--accent); margin-left: 1px; }
 .rec-chips em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--muted); }
 .rec-chips em.up { color: #4be3a4; }
-.rec-stars { display: flex; justify-content: space-between; padding: 0 2px 12px; }
+.rec-stars { display: grid; grid-template-columns: repeat(10, 1fr); gap: 15px 0; justify-items: center; padding: 0 2px 12px; }
 .rec-stars span { position: relative; width: 24px; height: 24px; display: grid; place-items: center; }
 .rec-stars span i { width: 22px; height: 22px; background-repeat: no-repeat; image-rendering: pixelated; }
 .rec-stars span.off i { filter: grayscale(1) brightness(0.45); }
