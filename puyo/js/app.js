@@ -5,6 +5,7 @@ import { Renderer } from './render.js';
 import { Pad, KEYMAPS } from './pad.js';
 import { Net, netErrorText, CODE_LENGTH, recordResults, fetchRanking, signIn, signInErrorText, whoAmI, signOut, recordGame, fetchRecords } from './net.js';
 import { Fireworks } from './fireworks.js';
+import { ITEMS } from './items.js';
 import { randomSeed } from './rng.js';
 import { levelOf } from './ai.js';
 import * as achieve from './achieve.js';
@@ -175,13 +176,12 @@ function gameSongs(mode) {
   return manifest.bgm.map((id, k) => oggSong(id, arcade[k % arcade.length]));
 }
 const BGM_NAMES = { arcade: '오락실 모드', battle: '전장 모드' };
-// How much more often a 전장 모드 song comes up than the others (1 when not listed): the ones
-// players remember best (There's Something About Supertank, Once in A Lifetime, Be Higher,
-// Egyptian Rule) once it is known which file each is.
-const BGM_WEIGHTS = {};
+// How often each 전장 모드 song comes up, as picked by ear: 0 never, 1 normal, 2.5 the
+// favourites (1, 2 and 7). Songs not listed don't play.
+const BGM_WEIGHTS = { F2_01: 2.5, F2_02: 2.5, F2_05: 1, F2_06: 1, F2_07: 2.5, F2_08: 1, F2_09: 1, F2_11: 1 };
 // A song for a game, the favourites more often; `r` (0-1) picks it, the same on both phones online.
 function pickSong(songs, r) {
-  const weights = songs.map((s) => (s.ogg ? BGM_WEIGHTS[s.id] ?? 1 : 1));
+  const weights = songs.map((s) => (s.ogg ? BGM_WEIGHTS[s.id] ?? 0 : 1));
   let x = r * weights.reduce((a, b) => a + b, 0);
   for (let i = 0; i < songs.length; i++) if ((x -= weights[i]) < 0) return songs[i];
   return songs[songs.length - 1];
@@ -255,6 +255,7 @@ async function init() {
   $('player-name').value = account?.name ?? '';
   $('skin').value = store.get('puyo-skin', 'classic');
   $('rounds').value = store.get('puyo-rounds', '2');
+  $('rule').value = store.get('puyo-rule', 'classic') === 'item' ? 'item' : 'classic';
   $('bgm').value = store.get('puyo-bgm', 'arcade');
   for (const el of document.querySelectorAll('.bgm-pick')) el.hidden = !hasOgg();
   // Saved before the levels: easy / normal / hard.
@@ -283,10 +284,13 @@ function pickSetup() {
   store.set('puyo-name', myName());
   store.set('puyo-opponent', $('opponent').value);
   store.set('puyo-rounds', $('rounds').value);
+  store.set('puyo-rule', $('rule').value);
   const other = pick.cpu === 'random' ? randomChar(pick.me) : pick.cpu;
   return {
     toWin: Number($('rounds').value),
     bgm: bgmMode(),
+    // Items need someone to aim at: not for two players on one keyboard.
+    rule: cpu ? $('rule').value : 'classic',
     players: [
       { name, char: pick.me, cpu: null, title: cpu ? achieve.title() : '' },
       { name: cpu ? NAMES[other] ?? '컴퓨터' : '2P', char: other, cpu },
@@ -318,6 +322,8 @@ async function start(setup = pickSetup(), online = null) {
     toWin: setup.toWin,
     net: online,
     practice: !!setup.practice,
+    rule: setup.rule,
+    onItems: () => renderItems(),
     onEnd: (winner) => { if (match === m) setTimeout(() => showEnd(winner), 1200); },
     onFx: (i, e) => onFx(m, i, e),
   });
@@ -364,12 +370,14 @@ function showEnd(winner) {
   $('to-lobby').hidden = !net || !lobby?.host;
   $('end-results').hidden = true;
   $('end-rank').hidden = !net;
-  $('end-saved').textContent = net ? '랭킹에 기록하는 중…' : '';
+  // The item battle is for fun: no ranking points and nothing in the record.
+  const items = !!match.items;
+  $('end-saved').textContent = net ? (items ? '아이템전은 랭킹에 기록하지 않아요' : '랭킹에 기록하는 중…') : items ? '아이템전은 기록하지 않아요' : '';
   // My record for the achievements (not for two players on one keyboard).
   const fresh = me != null ? achieve.matchDone({ won, online: !!net, level }) : [];
   $('end-achieve').hidden = !fresh.length;
   $('end-achieve').textContent = fresh.length ? `🏆 새 업적: ${fresh.map((x) => `[${x.title}]`).join(' ')}` : '';
-  showRecord(mine && winner >= 0 ? { won, level, chain: mine.best, score: mine.score } : null);
+  showRecord(mine && winner >= 0 ? { won, level: items ? 0 : level, chain: mine.best, score: mine.score } : null);
   // Next level / one lower, against the computer.
   const next = level && won && level < 20 ? level + 1 : 0, lower = level && !won && winner >= 0 && level > 1 ? level - 1 : 0;
   $('end-next').hidden = !next;
@@ -388,8 +396,8 @@ function showEnd(winner) {
     sound?.jingle(won ? 'WIN' : 'LOSE');
     if (won) fireworks.start();
   }
-  if (mine && account) saveGame({ kind: net ? 'online' : 'cpu', level: level || null, won, chain: mine.best, score: mine.score, clears: mine.clears ?? 0 });
-  if (net && lobby?.host) finishOnline(winner);
+  if (mine && account && !items) saveGame({ kind: net ? 'online' : 'cpu', level: level || null, won, chain: mine.best, score: mine.score, clears: mine.clears ?? 0 });
+  if (net && lobby?.host && !items) finishOnline(winner);
   else if (lastResult?.id === lastMatchId) showResult(lastResult);
 }
 
@@ -726,6 +734,7 @@ window.addEventListener('keydown', (e) => {
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (match.practice && (e.code === 'Backspace' || e.code === 'KeyU')) { undo(); return; }
+  if (match.items && /^Digit[123]$/.test(e.code)) { useItem(Number(e.code.slice(5)) - 1); return; }
   for (const p of pads) if (p?.key(e.code, true)) break;
 });
 window.addEventListener('keyup', (e) => { for (const p of pads) p?.key(e.code, false); });
@@ -738,10 +747,12 @@ function setTouch(on) {
   if (!renderer) return;
   renderer.touch = on;
   renderer.resize();
+  renderItems();
 }
 
 // The renderer picks the button size from the room it leaves for the row of buttons.
-function placeControls({ btn, menu, emo }) {
+function placeControls({ btn, menu, emo, items }) {
+  if (items) Object.assign($('items').style, { left: `${items.x}px`, top: `${items.y}px`, width: `${items.w}px`, height: `${items.h}px` });
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
   // Upright the menu and emote buttons sit at the ends of the status bar; otherwise in the top corners.
   for (const [id, at] of [['t-menu', menu], ['t-emo', emo]]) {
@@ -907,6 +918,23 @@ function friendFx(msg) {
   if (msg.t === 'title') match.players[i].title = String(msg.v ?? '').slice(0, 12);
 }
 
+// Item battle: my gauge and slots (tap a slot, or 1 2 3 on a keyboard).
+function renderItems() {
+  const it = match?.items, i = myIndex();
+  $('items').hidden = !it || i == null || !$('end').hidden || !$('menu').hidden;
+  if ($('items').hidden) return;
+  const p = it.players[i];
+  $('items-fill').style.width = `${(p.slots.length >= 3 ? 100 : (p.gauge / 3) * 100)}%`;
+  for (const b of $('items').querySelectorAll('[data-slot]')) b.textContent = ITEMS[p.slots[b.dataset.slot]]?.icon ?? '';
+}
+function useItem(n) {
+  const i = myIndex();
+  if (match?.items && i != null && $('pause').hidden) match.items.use(i, n);
+}
+for (const b of $('items').querySelectorAll('[data-slot]')) {
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); useItem(Number(b.dataset.slot)); });
+}
+
 // In-game menu: the match waits while it is open. Online both games wait: each side tells the
 // other whether its menu is open (a few times, numbered so a late copy can't undo a newer one),
 // and the match runs only while neither is.
@@ -1064,8 +1092,10 @@ function renderLobby() {
   $('lobby-rounds').disabled = !lobby.host;
   $('lobby-bgm').value = lobby.bgm ?? 'arcade';
   $('lobby-bgm').disabled = !lobby.host;
+  $('lobby-rule').value = lobby.rule ?? 'classic';
+  $('lobby-rule').disabled = !lobby.host;
   // The friend shows the room's settings once the host has sent them.
-  $('lobby-settings').textContent = lobby.host || lobby.bgm == null ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} · 배경음악: ${BGM_NAMES[lobby.bgm ?? 'arcade']} (방장이 정해요)`;
+  $('lobby-settings').textContent = lobby.host || lobby.bgm == null ? '' : `승부: ${{ 1: '1판', 2: '2선승', 3: '3선승' }[lobby.toWin ?? 2]} · 규칙: ${lobby.rule === 'item' ? '아이템전' : '정통'} · 배경음악: ${BGM_NAMES[lobby.bgm ?? 'arcade']} (방장이 정해요)`;
   $('lobby-start').hidden = !lobby.host;
   $('lobby-start').disabled = lobby.guestState !== 'joined';
 }
@@ -1078,6 +1108,12 @@ function myCharChanged() {
   renderLobby();
 }
 $('lobby-chars').onclick = openChars;
+$('lobby-rule').onchange = () => {
+  if (!lobby?.host) return;
+  lobby.rule = $('lobby-rule').value;
+  store.set('puyo-rule', lobby.rule);
+  net?.send(lobbyMsg());
+};
 $('lobby-bgm').onchange = () => {
   if (!lobby?.host) return;
   lobby.bgm = $('lobby-bgm').value;
@@ -1117,7 +1153,7 @@ async function hostRoom() {
   netStatus('방을 만드는 중…');
   try {
     const code = await openNet().host();
-    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, hostTitle: achieve.title(), guestState: 'waiting', toWin: Number($('rounds').value), bgm: bgmMode() };
+    lobby = { host: true, me: 0, code, hostName: name, hostChar: pick.me, hostTitle: achieve.title(), guestState: 'waiting', toWin: Number($('rounds').value), bgm: bgmMode(), rule: $('rule').value };
     netStatus('');
     showLobby();
     lobbyStatus('친구에게 방 번호를 알려 주거나 초대 링크를 보내세요.');
@@ -1143,7 +1179,7 @@ async function joinRoom() {
 }
 
 const lobbyMsg = () => ({
-  t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, hostTitle: lobby.hostTitle, guest: lobby.guestName, guestChar: lobby.guestChar, guestTitle: lobby.guestTitle, toWin: lobby.toWin, bgm: lobby.bgm,
+  t: 'lobby', host: lobby.hostName, hostChar: lobby.hostChar, hostTitle: lobby.hostTitle, guest: lobby.guestName, guestChar: lobby.guestChar, guestTitle: lobby.guestTitle, toWin: lobby.toWin, bgm: lobby.bgm, rule: lobby.rule,
 });
 const sendNet = (msg) => net?.send(msg);
 
@@ -1152,6 +1188,7 @@ function setupFrom(msg) {
     toWin: msg.toWin,
     frame: msg.frame,
     bgm: msg.bgm === 'battle' ? 'battle' : 'arcade',
+    rule: msg.rule === 'item' ? 'item' : 'classic',
     players: [{ name: msg.host, char: msg.hostChar, cpu: null, title: msg.hostTitle ?? '' }, { name: msg.guest, char: msg.guestChar, cpu: null, title: msg.guestTitle ?? '' }],
   };
 }
@@ -1214,7 +1251,7 @@ async function fromHost(msg) {
   if (msg.t === 'bye') { friendLeft(); return; }
   if (msg.t === 'lobby') {
     // While playing, a lineup update only waits for the next visit to the lobby.
-    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, hostTitle: msg.hostTitle ?? '', guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined', toWin: msg.toWin, bgm: msg.bgm ?? 'arcade' });
+    Object.assign(lobby, { hostName: msg.host, hostChar: msg.hostChar, hostTitle: msg.hostTitle ?? '', guestName: msg.guest, guestChar: msg.guestChar, guestState: 'joined', toWin: msg.toWin, bgm: msg.bgm ?? 'arcade', rule: msg.rule ?? 'classic' });
     if (match && $('end').hidden) return;
     const first = $('lobby').hidden;
     showLobby();

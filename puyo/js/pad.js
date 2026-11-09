@@ -22,6 +22,7 @@ export class Pad {
     this.dir = 0;
     this.hold = 0;
     this.fresh = false;
+    this.tapped = 0; // a left/right press, so one let go within the same frame still moves
   }
 
   // Returns true when the key belongs to this pad.
@@ -47,6 +48,7 @@ export class Pad {
       this.dir = action === 'left' ? -1 : 1;
       this.hold = 0;
       this.fresh = true;
+      this.tapped = this.dir;
     }
   }
 
@@ -59,6 +61,7 @@ export class Pad {
     this.moves = [];
     this.hard = false;
     this.dir = 0;
+    this.tapped = 0;
   }
 
   frame() {
@@ -68,6 +71,8 @@ export class Pad {
       if (this.fresh || dir !== this.dir) { move = dir; this.hold = 0; this.dir = dir; this.fresh = false; }
       else if (++this.hold >= DELAY && (this.hold - DELAY) % REPEAT === 0) move = dir;
     }
+    if (!move && this.tapped) move = this.tapped;
+    this.tapped = 0;
     if (this.moves.length) move = this.moves.shift();
     const turn = this.queue.shift() || 0;
     // A hard drop waits for queued turns and steps, so a quick swipe-and-flick lands where meant.

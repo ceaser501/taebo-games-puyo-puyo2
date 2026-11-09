@@ -36,6 +36,11 @@
     <button type="button" id="t-menu" aria-label="메뉴">Ⅱ</button>
     <button type="button" id="t-emo" aria-label="이모티콘">😀</button>
   </div>
+  <!-- Item battle: the gauge and my three item slots (tap to use; keys 1 2 3). -->
+  <div id="items" hidden>
+    <div class="items-gauge"><span>아이템</span><i><b id="items-fill"></b></i></div>
+    <div class="items-slots"><button type="button" data-slot="0"></button><button type="button" data-slot="1"></button><button type="button" data-slot="2"></button></div>
+  </div>
   <!-- Quick reactions: a speech bubble over my character (and on my friend's screen online). -->
   <div id="emo-pick" hidden></div>
 
@@ -141,6 +146,12 @@
           <option value="">한 키보드 2인</option>
         </select>
       </label>
+      <label>규칙
+        <select id="rule">
+          <option value="classic" selected>정통</option>
+          <option value="item">아이템전</option>
+        </select>
+      </label>
       <label>승부
         <select id="rounds">
           <option value="1">1판</option>
@@ -225,6 +236,12 @@
           <option value="1">1판</option>
           <option value="2" selected>2선승</option>
           <option value="3">3선승</option>
+        </select>
+      </label>
+      <label class="lobby-rounds">규칙
+        <select id="lobby-rule">
+          <option value="classic">정통</option>
+          <option value="item">아이템전</option>
         </select>
       </label>
       <label class="lobby-rounds bgm-pick">배경음악

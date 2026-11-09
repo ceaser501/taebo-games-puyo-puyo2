@@ -4,6 +4,7 @@
 import { Board, Mirror } from './board.js';
 import { Pairs, randomSeed } from './rng.js';
 import { Cpu } from './ai.js';
+import { Items } from './items.js';
 
 export const DT = 1 / 60;
 const READY = 1.4; // "READY?" before the first pair
@@ -18,7 +19,8 @@ export class Match {
   // onFx(i, event): every board event, for effects outside the game (shaking, vibration, achievements).
   // practice: one board only (the second is never played), no rounds, the pair stays put until
   // moved down, and pairs can be taken back.
-  constructor({ players, pads, sound, toWin = 2, net = null, practice = false, onEnd = () => {}, onRound = () => {}, onFx = () => {} }) {
+  // rule: 'classic', or 'item' for the item battle (items.js); onItems: my items changed.
+  constructor({ players, pads, sound, toWin = 2, net = null, practice = false, rule = 'classic', onEnd = () => {}, onRound = () => {}, onFx = () => {}, onItems = () => {} }) {
     // score / best: points and best chain over the whole match, for the ranking.
     this.players = players.map((p) => ({ ...p, wins: 0, score: 0, best: 0 }));
     this.pads = pads;
@@ -26,6 +28,7 @@ export class Match {
     this.toWin = toWin;
     this.net = net;
     this.practice = practice;
+    this.items = rule === 'item' && !practice ? new Items(this, onItems) : null;
     this.onEnd = onEnd;
     this.onRound = onRound;
     this.onFx = onFx;
@@ -43,6 +46,7 @@ export class Match {
     this.boards = [0, 1].map((i) => (this.net && i !== this.net.me ? new Mirror(pairs) : new Board({ pairs, seed: seed + 1 + i })));
     this.cpus = this.players.map((p, i) => (p.cpu && !this.net ? new Cpu(this.boards[i], p.cpu, this.boards[1 - i]) : null));
     if (this.practice) Object.assign(this.boards[0], { still: true, history: [] });
+    this.items?.reset();
     this.state = 'ready';
     this.clock = 0;
     this.result = null;
@@ -89,7 +93,11 @@ export class Match {
     this.playTime += DT;
     this.boards.forEach((b, i) => {
       if (this.practice && i) return;
-      const input = this.cpus[i]?.input() ?? this.pads[i]?.frame() ?? {};
+      let input = this.cpus[i]?.input() ?? this.pads[i]?.frame() ?? {};
+      if (this.items && !(b instanceof Mirror)) {
+        if (this.cpus[i]) this.items.cpu(i);
+        input = this.items.input(i, input);
+      }
       b.step(input);
       for (const e of b.events) this.event(i, e);
     });
@@ -126,12 +134,15 @@ export class Match {
         s?.chain(e.chain, pan);
         s?.chainVoice(this.players[i].char, e.chain, pan);
         if (e.cancel) s?.sfx('offset', pan, 0.6);
+        if (local && this.items) this.items.chained(i);
         if (local && e.send && !this.practice) {
-          if (this.net) this.net.send({ t: 'atk', k: this.seed, n: e.send });
-          else other.receive(e.send);
+          const n = this.items ? this.items.sends(i, e.send) : e.send;
+          if (this.net) this.net.send({ t: 'atk', k: this.seed, n });
+          else other.receive(n);
         }
         break;
       case 'chainEnd':
+        if (local) this.items?.chainEnded(i);
         if (!local || this.practice) break;
         if (this.net) this.net.send({ t: 'rel', k: this.seed });
         else other.release();
@@ -163,6 +174,7 @@ export class Match {
         this.startRound(m.seed);
         break;
       case 'end': if (!this.over) this.finish(m.winner); break;
+      case 'item': if (this.items && this.state === 'play') this.items.hit(this.net.me, m.kind); break;
     }
   }
 

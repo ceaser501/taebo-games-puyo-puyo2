@@ -34,6 +34,7 @@ function layout(tall, me, extra = 0, pad = 16) {
       next: [{ x: 232, y: 32 }, { x: 328, y: 32 }],
       face: [{ x: 232, y: 172 }, { x: 328, y: 172 }],
       figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
+      items: { x: 250, y: 178, w: 140, h: 44 },
     };
   }
   // Upright: the status bar on top (the menu button at its left end, then time, names and
@@ -52,6 +53,8 @@ function layout(tall, me, extra = 0, pad = 16) {
   L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
   L.menu = { x: BAR.x + 6, y: BAR.y + 8, size: 40 };
   L.emo = { x: BAR.x + BAR.w - 46, y: BAR.y + 8, size: 40 };
+  // Item battle: the gauge and three slots under the other field.
+  L.items = { x: 250, y: L.fields[o].y + FIELD_H * so + pad * so + 6, w: 100, h: 44 };
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
     const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
@@ -191,7 +194,8 @@ export class Renderer {
       btn = Math.floor(Math.max(44, Math.min((this.ox - 24 - 20) / 3, 70)));
     }
     const place = (m) => m && { x: this.ox + m.x * this.scale, y: this.oy + m.y * this.scale, size: m.size * this.scale };
-    this.controls = { tall: this.tall, btn, menu: place(this.layout.menu), emo: place(this.layout.emo) };
+    const it = this.layout.items;
+    this.controls = { tall: this.tall, btn, menu: place(this.layout.menu), emo: place(this.layout.emo), items: it && { ...place(it), w: it.w * this.scale, h: it.h * this.scale } };
     this.onLayout?.(this.controls);
     this.dpr = dpr;
     this.px = this.scale * dpr; // device pixels per screen unit
@@ -476,6 +480,7 @@ export class Renderer {
       ctx.restore();
     });
     this.drawCentre(ctx, match);
+    if (match.items) this.drawItems(ctx, match);
     this.drawHud(ctx, match);
     this.drawBanner(ctx, match);
   }
@@ -948,6 +953,70 @@ export class Renderer {
     ctx.fillStyle = cut.n >= 6 ? '#ff7a7a' : '#ffd84a';
     ctx.fillText(`${cut.n}연쇄!`, tx + tw / 2, top + h * 0.78, tw);
     ctx.restore();
+  }
+
+  // ---- item battle --------------------------------------------------------------------------
+
+  // Fog over a NEXT window, the effects running on each field (top left), and the note that
+  // pops over a field when an item is used on it.
+  drawItems(ctx, match) {
+    const L = this.layout, it = match.items;
+    match.boards.forEach((b, i) => {
+      const at = L.fields[i];
+      if (!at) return;
+      const fieldW = FIELD_W * at.s, fieldH = FIELD_H * at.s;
+      const nx = L.next[i];
+      if (nx && it.active(i, 'fog')) {
+        const h = this.classic && !this.framed ? 144 : 128;
+        ctx.save();
+        ctx.fillStyle = 'rgba(200, 205, 230, 0.96)';
+        roundRect(ctx, nx.x, nx.y, this.classic ? 88 : 80, h, 10);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(150, 155, 190, 0.9)';
+        ctx.lineWidth = 6;
+        ctx.clip();
+        for (let k = -h; k < 100; k += 14) { ctx.beginPath(); ctx.moveTo(nx.x + k, nx.y); ctx.lineTo(nx.x + k + h, nx.y + h); ctx.stroke(); }
+        ctx.restore();
+        this.label(ctx, '🌫', nx.x + 40, nx.y + h / 2 - 10, 26, { colours: ['#fff', '#fff', '#fff'] });
+        ctx.font = `900 11px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#2a2f4a';
+        ctx.fillText('가려짐', nx.x + 40, nx.y + h / 2 + 20);
+      }
+      const badges = it.badges(i);
+      ctx.font = `900 ${Math.round(11 * Math.max(0.8, at.s))}px ${FONT}`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      badges.forEach((text, k) => {
+        const w = ctx.measureText(text).width + 12, h = 16 * Math.max(0.8, at.s), x = at.x + 4, y = at.y + 4 + k * (h + 3);
+        ctx.fillStyle = 'rgba(6, 8, 20, 0.78)';
+        roundRect(ctx, x, y, w, h, h / 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffd84a';
+        ctx.fillText(text, x + 6, y + h / 2 + 0.5);
+      });
+      for (const n of it.liveNotes()) {
+        if (n.i !== i) continue;
+        const age = match.time - n.t, pop = age < 0.15 ? 0.6 + (age / 0.15) * 0.5 : age < 0.25 ? 1.1 - (age - 0.15) : 1;
+        const alpha = age > 1.1 ? Math.max(0, (1.4 - age) / 0.3) : 1;
+        const size = Math.round(Math.max(12, 18 * at.s));
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = `900 ${size}px ${FONT}`;
+        const w = ctx.measureText(n.text).width + 20, h = size + 12;
+        ctx.translate(at.x + fieldW / 2, at.y + fieldH * 0.4);
+        ctx.scale(pop, pop);
+        const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+        g.addColorStop(0, '#ffd95a'); g.addColorStop(1, '#ffae1f');
+        ctx.fillStyle = g;
+        roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
+        ctx.fill();
+        ctx.fillStyle = '#2a1600';
+        ctx.textAlign = 'center';
+        ctx.fillText(n.text, 0, 1, Math.max(40, fieldW + 30));
+        ctx.restore();
+      }
+    });
   }
 
   // ---- practice ---------------------------------------------------------------------------

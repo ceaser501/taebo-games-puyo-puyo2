@@ -62,6 +62,11 @@ export class Board {
     this.frame = 0;
     this.attack = 0; // nuisance this board sent during the current chain (for the CPU)
     this.maxChain = 0; // best chain this round
+    // Item battle: the next nuisance drop is blocked, pieces fall faster for a while, the
+    // bottom row is cleared at the next chance (see items.js).
+    this.shield = false;
+    this.boost = 1;
+    this.clearQueued = false;
     // Practice: the pair stays put until moved down, and every pair can be taken back.
     this.still = false;
     this.history = null; // [field before each pair], when taking back is on
@@ -75,7 +80,7 @@ export class Board {
   get nextPairs() { return [this.pairs.get(this.next), this.pairs.get(this.next + 1)]; }
 
   // Speed in cells per frame: slow at first, faster over a long round.
-  get gravity() { return this.still ? 0 : Math.min(0.12, (0.022 + this.time * 0.00012) * this.speed); }
+  get gravity() { return this.still ? 0 : Math.min(0.12 * this.boost, (0.022 + this.time * 0.00012) * this.speed * this.boost); }
 
   // A puyo at a fractional row covers the rows it overlaps.
   free(x, y) {
@@ -88,7 +93,19 @@ export class Board {
     return this.free(x, y) && this.free(x + dx, y + dy);
   }
 
+  // Item: removes the bottom row (everything above moves down one). With a pair in hand or
+  // between pairs it happens now; during a chain, at the next pair.
+  clearRow() {
+    if (this.phase !== 'move' && this.phase !== 'spawn') { this.clearQueued = true; return; }
+    this.clearQueued = false;
+    for (let y = H - 1; y > 0; y--) for (let x = 0; x < W; x++) this.grid[y * W + x] = this.grid[(y - 1) * W + x];
+    for (let x = 0; x < W; x++) this.grid[x] = 0;
+    this.land.fill(0);
+    this.emit('rowCleared');
+  }
+
   spawn() {
+    if (this.clearQueued) this.clearRow();
     if (this.at(DEATH_X, 1) !== 0) {
       this.dead = true;
       this.phase = 'dead';
@@ -351,6 +368,12 @@ export class Board {
         this.allClearShow = 120;
         this.emit('allClear');
       }
+    }
+    // Item: a shield takes the whole drop.
+    if (this.pending > 0 && this.shield) {
+      this.emit('shielded', { n: this.pending });
+      this.pending = 0;
+      this.shield = false;
     }
     // Nuisance falls after the chain is over and the field is still.
     if (this.pending > 0 && !this.garbageDone) {
