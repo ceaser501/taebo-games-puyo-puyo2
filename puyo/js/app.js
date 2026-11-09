@@ -306,6 +306,7 @@ async function start(setup = pickSetup(), online = null) {
   $('start').textContent = '불러오는 중…';
   renderer.skin = $('skin').value;
   renderer.me = online?.me ?? 0;
+  renderer.itemBar = setup.rule === 'item' && !setup.practice;
   store.set('puyo-skin', renderer.skin);
   const frame = setup.frame ?? stageFrame();
   await renderer.prepare({ frame, chars: setup.players.map((p) => p.char) });
@@ -752,7 +753,11 @@ function setTouch(on) {
 
 // The renderer picks the button size from the room it leaves for the row of buttons.
 function placeControls({ btn, menu, emo, items }) {
-  if (items) Object.assign($('items').style, { left: `${items.x}px`, top: `${items.y}px`, width: `${items.w}px`, height: `${items.h}px` });
+  if (items) {
+    Object.assign($('items').style, { left: `${items.x}px`, top: `${items.y}px`, width: `${items.w}px`, height: `${items.h}px` });
+    // Short screens get a slimmer bar: no hint line under the names.
+    $('items').classList.toggle('compact', items.h < 50);
+  }
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
   // Upright the menu and emote buttons sit at the ends of the status bar; otherwise in the top corners.
   for (const [id, at] of [['t-menu', menu], ['t-emo', emo]]) {
@@ -923,10 +928,18 @@ function renderItems() {
   const it = match?.items, i = myIndex();
   $('items').hidden = !it || i == null || !$('end').hidden || !$('menu').hidden;
   if ($('items').hidden) return;
-  const p = it.players[i];
-  $('items-fill').style.width = `${(p.slots.length >= 3 ? 100 : (p.gauge / 3) * 100)}%`;
-  for (const b of $('items').querySelectorAll('[data-slot]')) b.textContent = ITEMS[p.slots[b.dataset.slot]]?.icon ?? '';
+  const p = it.players[i], full = p.slots.length >= 3;
+  $('items-fill').style.width = `${full ? 100 : (p.gauge / 3) * 100}%`;
+  $('items-count').textContent = full ? '칸이 꽉 찼어요' : `${p.gauge}/3`;
+  for (const b of $('items').querySelectorAll('[data-slot]')) {
+    const kind = p.slots[b.dataset.slot], item = ITEMS[kind];
+    b.className = item ? (item.foe ? 'foe' : 'self') : 'empty';
+    b.innerHTML = item ? `<i>${item.icon}</i><span>${item.name}<small>${ITEM_HINTS[kind]}</small></span>` : '빈 칸';
+    b.setAttribute('aria-label', item ? `${item.name} 쓰기` : '빈 칸');
+  }
 }
+// One line under each item's name.
+const ITEM_HINTS = { double: '다음 연쇄 ×2', shield: '방해뿌요 1번 막기', clear: '맨 아래 줄', fog: '상대 8초', reverse: '상대 5초', speed: '상대 6초' };
 function useItem(n) {
   const i = myIndex();
   if (match?.items && i != null && $('pause').hidden) match.items.use(i, n);

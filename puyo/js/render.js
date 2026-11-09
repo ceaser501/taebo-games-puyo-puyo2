@@ -21,12 +21,15 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 const FIGURE_STRIP = 90;
 // Height of the tall layout without that strip: status bar, then my field drawn 1.05x.
 const TALL_H = 516;
+// Item battle, upright: a full-width item bar under the fields, above the characters.
+const ITEM_BAR = 62;
 // Status bar on a tall screen, a little clear of the top edge.
 const BAR = { x: 8, y: 10, w: 344, h: 56 };
 
 // extra: screen units left below the fields on a tall screen, where the characters stand.
 // pad: how far a field's border sticks out (the original frame 16, the glass panel 6).
-function layout(tall, me, extra = 0, pad = 16) {
+// bar: room kept under the fields for the item bar (item battle), 0 otherwise.
+function layout(tall, me, extra = 0, pad = 16, bar = 0) {
   if (!tall) {
     return {
       screen: SCREEN,
@@ -34,7 +37,7 @@ function layout(tall, me, extra = 0, pad = 16) {
       next: [{ x: 232, y: 32 }, { x: 328, y: 32 }],
       face: [{ x: 232, y: 172 }, { x: 328, y: 172 }],
       figure: [{ x: 272, y: 448 }, { x: 368, y: 448 }],
-      items: { x: 250, y: 178, w: 140, h: 44 },
+      items: { x: 236, y: 178, w: 168, h: 44 },
     };
   }
   // Upright: the status bar on top (the menu button at its left end, then time, names and
@@ -42,7 +45,7 @@ function layout(tall, me, extra = 0, pad = 16) {
   // the other field right under it; below them the two characters face each other, and the row
   // of touch buttons sits under that.
   const o = 1 - me;
-  const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
+  const L = { screen: { w: 360, h: TALL_H + bar + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
   // Mine starts 7 units under the bar (border included); NEXT lines up with its border, and
   // the other field's border starts 8 units under NEXT (the original window is 144 tall, the
   // modern box 128).
@@ -53,11 +56,11 @@ function layout(tall, me, extra = 0, pad = 16) {
   L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
   L.menu = { x: BAR.x + 6, y: BAR.y + 8, size: 40 };
   L.emo = { x: BAR.x + BAR.w - 46, y: BAR.y + 8, size: 40 };
-  // Item battle: the gauge and three slots under the other field.
-  L.items = { x: 250, y: L.fields[o].y + FIELD_H * so + pad * so + 6, w: 100, h: 44 };
+  // Item battle: the item bar across the screen, under my field (the characters move down).
+  L.items = { x: 8, y: top + FIELD_H * s + pad * s + 6, w: 344, h: bar - 10 };
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
-    const h = Math.min(extra - 42, 72), y = TALL_H + extra - 38;
+    const h = Math.min(extra - 42, 72), y = TALL_H + bar + extra - 38;
     L.figure[me] = { x: 100, y, h, name: true };
     L.figure[o] = { x: 260, y, h, name: true };
   }
@@ -182,8 +185,9 @@ export class Renderer {
       const room = btn ? Math.round(btn * 1.2) + 26 : 0;
       // Below the notch when the page runs full screen.
       const inset = safeTop();
-      this.scale = Math.min(w / 360, (h - room - inset) / (TALL_H + FIGURE_STRIP));
-      this.layout = layout(true, this.me, Math.max(0, (h - room - inset) / this.scale - TALL_H), this.classic ? 16 : 6);
+      const bar = this.itemBar ? ITEM_BAR : 0;
+      this.scale = Math.min(w / 360, (h - room - inset) / (TALL_H + bar + FIGURE_STRIP));
+      this.layout = layout(true, this.me, Math.max(0, (h - room - inset) / this.scale - TALL_H - bar), this.classic ? 16 : 6, bar);
       this.ox = (w - 360 * this.scale) / 2;
       this.oy = inset;
     } else {
@@ -997,23 +1001,46 @@ export class Renderer {
       });
       for (const n of it.liveNotes()) {
         if (n.i !== i) continue;
+        const life = { used: 1.4, get: 1.6, warn: 2.4 }[n.kind] ?? 1.4;
         const age = match.time - n.t, pop = age < 0.15 ? 0.6 + (age / 0.15) * 0.5 : age < 0.25 ? 1.1 - (age - 0.15) : 1;
-        const alpha = age > 1.1 ? Math.max(0, (1.4 - age) / 0.3) : 1;
-        const size = Math.round(Math.max(12, 18 * at.s));
+        const alpha = age > life - 0.3 ? Math.max(0, (life - age) / 0.3) : 1;
+        const warn = n.kind === 'warn';
+        const size = Math.round(Math.max(12, (warn ? 19 : 17) * at.s));
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.font = `900 ${size}px ${FONT}`;
-        const w = ctx.measureText(n.text).width + 20, h = size + 12;
-        ctx.translate(at.x + fieldW / 2, at.y + fieldH * 0.4);
+        const sub = warn && n.item && it.active(i, n.item) ? `${it.left(i, n.item)}초` : '';
+        const w = Math.max(ctx.measureText(n.text).width + 24, warn ? fieldW * 0.9 : 0), h = size + (sub ? 30 : 14);
+        // Warnings sit in the middle of the field, items got near its top, items used just above the middle.
+        const cy = warn ? fieldH * 0.45 : n.kind === 'get' ? fieldH * 0.12 + h / 2 : fieldH * 0.36;
+        ctx.translate(at.x + fieldW / 2, at.y + cy - (n.kind === 'get' ? Math.min(age, 0.4) * 20 : 0));
         ctx.scale(pop, pop);
-        const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-        g.addColorStop(0, '#ffd95a'); g.addColorStop(1, '#ffae1f');
-        ctx.fillStyle = g;
-        roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
-        ctx.fill();
-        ctx.fillStyle = '#2a1600';
+        if (warn) {
+          ctx.fillStyle = 'rgba(200, 20, 60, 0.92)';
+          ctx.strokeStyle = '#ffb3c2';
+          ctx.lineWidth = 2;
+          ctx.shadowColor = 'rgba(255, 60, 100, 0.8)';
+          ctx.shadowBlur = 16;
+          roundRect(ctx, -w / 2, -h / 2, w, h, 12);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.stroke();
+          ctx.fillStyle = '#fff';
+        } else {
+          const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+          if (n.kind === 'get') { g.addColorStop(0, '#fff3a8'); g.addColorStop(1, '#ffc93a'); } else { g.addColorStop(0, '#ffd95a'); g.addColorStop(1, '#ffae1f'); }
+          ctx.fillStyle = g;
+          roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
+          ctx.fill();
+          ctx.fillStyle = '#2a1600';
+        }
         ctx.textAlign = 'center';
-        ctx.fillText(n.text, 0, 1, Math.max(40, fieldW + 30));
+        ctx.textBaseline = 'middle';
+        ctx.fillText(n.text, 0, sub ? -8 : 1, Math.max(40, fieldW + 30));
+        if (sub) {
+          ctx.font = `800 ${Math.round(size * 0.7)}px ${FONT}`;
+          ctx.fillText(sub, 0, 13);
+        }
         ctx.restore();
       }
     });

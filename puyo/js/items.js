@@ -16,7 +16,8 @@ const KINDS = Object.keys(ITEMS);
 const ATTACK = new Set(['double', 'fog', 'reverse', 'speed']);
 export const GAUGE = 3; // chain steps for one item
 export const SLOTS = 3;
-const NOTE_TIME = 1.4; // seconds an "item used" note stays over a field
+// Seconds a note stays over a field: an item used, an item got, an item hitting this field.
+const NOTE_TIME = { used: 1.4, get: 1.6, warn: 2.4 };
 const SPEED_BOOST = 2.2;
 
 const height = (b) => {
@@ -51,7 +52,9 @@ export class Items {
     p.gauge++;
     while (p.gauge >= GAUGE && p.slots.length < SLOTS) {
       p.gauge -= GAUGE;
-      p.slots.push(this.pick(i));
+      const kind = this.pick(i);
+      p.slots.push(kind);
+      this.note(i, `${ITEMS[kind].icon} ${ITEMS[kind].name} 획득!`, 'get');
       this.match.sound?.sfx('select', 0, 0.7);
     }
     if (p.slots.length >= SLOTS) p.gauge = Math.min(p.gauge, GAUGE);
@@ -95,11 +98,13 @@ export class Items {
     const item = ITEMS[kind];
     if (!item?.secs) return;
     this.players[i].until[kind] = this.match.time + item.secs;
-    if (!noted) this.note(i, `${item.icon} ${item.name}!`);
+    if (!noted) this.note(i, `${item.icon} ${this.match.players[1 - i].name}의 ${item.name}!`, 'warn', kind);
     this.match.sound?.sfx('garbageSmall', 0, 0.7);
   }
 
-  note(i, text) { this.notes.push({ i, text, t: this.match.time }); }
+  // kind: 'used' (an item used on this field), 'get' (an item got), 'warn' (one hitting me; `item`
+  // names it, for the seconds left).
+  note(i, text, kind = 'used', item = null) { this.notes.push({ i, text, kind, item, t: this.match.time }); }
 
   active(i, kind) { return (this.players[i].until[kind] ?? 0) > this.match.time; }
 
@@ -146,7 +151,10 @@ export class Items {
   }
 
   liveNotes() {
-    this.notes = this.notes.filter((n) => this.match.time - n.t < NOTE_TIME);
+    this.notes = this.notes.filter((n) => this.match.time - n.t < NOTE_TIME[n.kind]);
     return this.notes;
   }
+
+  // Seconds left of an effect on player i.
+  left(i, kind) { return Math.max(0, Math.ceil((this.players[i].until[kind] ?? 0) - this.match.time)); }
 }
