@@ -306,7 +306,7 @@ async function start(setup = pickSetup(), online = null) {
   $('start').textContent = '불러오는 중…';
   renderer.skin = $('skin').value;
   renderer.me = online?.me ?? 0;
-  renderer.itemBar = setup.rule === 'item' && !setup.practice;
+  renderer.itemMode = setup.rule === 'item' && !setup.practice;
   store.set('puyo-skin', renderer.skin);
   const frame = setup.frame ?? stageFrame();
   await renderer.prepare({ frame, chars: setup.players.map((p) => p.char) });
@@ -755,8 +755,11 @@ function setTouch(on) {
 function placeControls({ btn, menu, emo, items }) {
   if (items) {
     Object.assign($('items').style, { left: `${items.x}px`, top: `${items.y}px`, width: `${items.w}px`, height: `${items.h}px` });
-    // Short screens get a slimmer bar: no hint line under the names.
-    $('items').classList.toggle('compact', items.h < 50);
+    // Upright the window has room for big buttons (icon, name and what it does); on its side the
+    // row is narrow: icons only.
+    $('items').classList.toggle('big', items.h >= 60);
+    $('items').classList.toggle('hint', items.h >= 96);
+    $('items').classList.toggle('icons', items.w < 200);
   }
   if (btn) $('touch').style.setProperty('--btn', `${btn}px`);
   // Upright the menu and emote buttons sit at the ends of the status bar; otherwise in the top corners.
@@ -934,11 +937,12 @@ function renderItems() {
   for (const b of $('items').querySelectorAll('[data-slot]')) {
     const kind = p.slots[b.dataset.slot], item = ITEMS[kind];
     b.className = item ? (item.foe ? 'foe' : 'self') : 'empty';
-    b.innerHTML = item ? `<i>${item.icon}</i><span>${item.name}<small>${ITEM_HINTS[kind]}</small></span>` : '빈 칸';
+    b.innerHTML = item ? `<i>${item.icon}</i><span>${item.name}</span><small>${ITEM_HINTS[kind]}</small>` : '빈 칸';
+    b.title = item ? ITEM_HINTS[kind] : '';
     b.setAttribute('aria-label', item ? `${item.name} 쓰기` : '빈 칸');
   }
 }
-// One line under each item's name.
+// What each item does, under its name.
 const ITEM_HINTS = { double: '다음 연쇄 ×2', shield: '방해뿌요 1번 막기', clear: '맨 아래 줄', fog: '상대 8초', reverse: '상대 5초', speed: '상대 6초' };
 function useItem(n) {
   const i = myIndex();

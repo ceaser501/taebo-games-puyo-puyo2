@@ -1217,7 +1217,7 @@ button.link {
 #rank-kind button { flex: 1; }
 #login h1 { font-size: 19px; text-wrap: balance; }
 
-/* ---- item battle: a bar across the screen under the fields ---- */
+/* ---- item battle: the item window ---- */
 
 #items {
   position: fixed;
@@ -1264,10 +1264,27 @@ button.link {
 .items-gauge { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; color: var(--muted); }
 .items-gauge i { flex: 1; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 .items-gauge b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffd95a, #ff9a3c); transition: width 0.2s; }
-#items.compact { padding: 3px; gap: 2px; }
-#items.compact .items-slots button { padding: 0 4px; gap: 3px; font-size: 10.5px; }
-#items.compact .items-slots button i { font-size: 17px; }
-#items.compact .items-slots button small { display: none; }
-#items.compact .items-gauge { font-size: 9px; }
-#items.compact .items-gauge i { height: 4px; }
+/* Upright: the window across the strip under the fields, three big buttons. */
+.items-slots button small { display: none; }
+#items.big { padding: 7px; gap: 6px; }
+#items.big .items-slots { gap: 7px; }
+#items.big .items-slots button { flex-direction: column; justify-content: center; gap: 2px; text-align: center; padding: 4px; border-radius: 12px; }
+#items.big .items-slots button i { font-size: 24px; }
+#items.big.hint .items-slots button i { font-size: 30px; }
+/* Big but short: icon beside the name. */
+#items.big:not(.hint) .items-slots button { flex-direction: row; gap: 3px; padding: 2px 4px; }
+#items.big:not(.hint) .items-slots button i { font-size: 20px; }
+#items.big:not(.hint) .items-slots button span { font-size: 12px; letter-spacing: -0.3px; white-space: normal; word-break: keep-all; line-height: 1.05; }
+#items.big .items-slots button span { font-size: 14px; }
+#items.big.hint .items-slots button small { display: block; font-size: 10.5px; font-weight: 700; color: rgba(255, 255, 255, 0.85); white-space: nowrap; }
+#items.big .items-slots button.empty { font-size: 12px; }
+#items.big .items-gauge { font-size: 11px; }
+#items.big .items-gauge i { height: 7px; }
+/* On its side the row is narrow: icons only. */
+#items.icons { padding: 3px; gap: 2px; }
+#items.icons .items-slots button { justify-content: center; padding: 0; }
+#items.icons .items-slots button i { font-size: 20px; }
+#items.icons .items-slots button span { display: none; }
+#items.icons .items-slots button.empty { font-size: 0; }
+#items.icons .items-gauge span:first-child { display: none; }
 @media (prefers-reduced-motion: reduce) { .items-slots button { animation: none !important; } }

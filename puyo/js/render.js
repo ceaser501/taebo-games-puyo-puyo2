@@ -21,15 +21,14 @@ const FIELD_W = W * CELL, FIELD_H = (H - 1) * CELL;
 const FIGURE_STRIP = 90;
 // Height of the tall layout without that strip: status bar, then my field drawn 1.05x.
 const TALL_H = 516;
-// Item battle, upright: a full-width item bar under the fields, above the characters.
-const ITEM_BAR = 62;
 // Status bar on a tall screen, a little clear of the top edge.
 const BAR = { x: 8, y: 10, w: 344, h: 56 };
 
 // extra: screen units left below the fields on a tall screen, where the characters stand.
 // pad: how far a field's border sticks out (the original frame 16, the glass panel 6).
-// bar: room kept under the fields for the item bar (item battle), 0 otherwise.
-function layout(tall, me, extra = 0, pad = 16, bar = 0) {
+// items: item battle, where the characters move small under the other field and the strip
+// under the fields becomes the item window.
+function layout(tall, me, extra = 0, pad = 16, items = false) {
   if (!tall) {
     return {
       screen: SCREEN,
@@ -45,7 +44,7 @@ function layout(tall, me, extra = 0, pad = 16, bar = 0) {
   // the other field right under it; below them the two characters face each other, and the row
   // of touch buttons sits under that.
   const o = 1 - me;
-  const L = { screen: { w: 360, h: TALL_H + bar + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
+  const L = { screen: { w: 360, h: TALL_H + extra }, hud: true, fields: [], next: [], face: [null, null], figure: [null, null] };
   // Mine starts 7 units under the bar (border included); NEXT lines up with its border, and
   // the other field's border starts 8 units under NEXT (the original window is 144 tall, the
   // modern box 128).
@@ -56,13 +55,22 @@ function layout(tall, me, extra = 0, pad = 16, bar = 0) {
   L.fields[o] = { x: 256, y: L.next[me].y + (pad === 16 ? 144 : 128) + 8 + pad * so, s: so };
   L.menu = { x: BAR.x + 6, y: BAR.y + 8, size: 40 };
   L.emo = { x: BAR.x + BAR.w - 46, y: BAR.y + 8, size: 40 };
-  // Item battle: the item bar across the screen, under my field (the characters move down).
-  L.items = { x: 8, y: top + FIELD_H * s + pad * s + 6, w: 344, h: bar - 10 };
+  const myBottom = top + FIELD_H * s + pad * s, colTop = L.fields[o].y + FIELD_H * so + pad * so;
+  if (items) {
+    // Item battle: both characters small in the column under the other field (feet above
+    // their names), and the item window across the strip under the fields.
+    // Stars (26 under the feet) stay clear of the item window.
+    const fh = Math.min(48, (myBottom - colTop - 40) / 1.15), fy = colTop + 6 + fh * 1.15;
+    L.figure[me] = { x: 274, y: fy, h: fh, name: true, small: true };
+    L.figure[o] = { x: 328, y: fy, h: fh, name: true, small: true };
+    L.items = { x: 8, y: myBottom + 6, w: 344, h: Math.max(56, TALL_H + extra - myBottom - 12) };
+    return L;
+  }
   if (extra >= FIGURE_STRIP) {
     // Small figures, feet above the name and the stars (the last 36 units).
-    const h = Math.min(extra - 42, 72), y = TALL_H + bar + extra - 38;
-    L.figure[me] = { x: 100, y, h, name: true };
-    L.figure[o] = { x: 260, y, h, name: true };
+    const fh = Math.min(extra - 42, 72), fy = TALL_H + extra - 38;
+    L.figure[me] = { x: 100, y: fy, h: fh, name: true };
+    L.figure[o] = { x: 260, y: fy, h: fh, name: true };
   }
   return L;
 }
@@ -185,9 +193,8 @@ export class Renderer {
       const room = btn ? Math.round(btn * 1.2) + 26 : 0;
       // Below the notch when the page runs full screen.
       const inset = safeTop();
-      const bar = this.itemBar ? ITEM_BAR : 0;
-      this.scale = Math.min(w / 360, (h - room - inset) / (TALL_H + bar + FIGURE_STRIP));
-      this.layout = layout(true, this.me, Math.max(0, (h - room - inset) / this.scale - TALL_H - bar), this.classic ? 16 : 6, bar);
+      this.scale = Math.min(w / 360, (h - room - inset) / (TALL_H + FIGURE_STRIP));
+      this.layout = layout(true, this.me, Math.max(0, (h - room - inset) / this.scale - TALL_H), this.classic ? 16 : 6, this.itemMode);
       this.ox = (w - 360 * this.scale) / 2;
       this.oy = inset;
     } else {
@@ -781,7 +788,7 @@ export class Renderer {
             // Above the tallest pose and the highest hop.
             if (!this.drawToast(ctx, i, f, match)) this.drawBubble(ctx, i, f.x, f.y - (f.h ?? 93) * 1.3 - 4, match);
           }
-          if (f.name) this.drawName(ctx, i, f.x, f.y + 10, match);
+          if (f.name) this.drawName(ctx, i, f.x, f.y + 10, match, f.small);
         }
       }
     });
@@ -797,7 +804,7 @@ export class Renderer {
     const chainNow = b.chainShow > 0 ? b.lastChain : 0;
     if (chainNow && chainNow !== m.chain) {
       const line = arle ? LINES.arleChain[Math.min(chainNow, 7) - 1] : LINES.chain[Math.min(chainNow, 7) - 1];
-      if (chainNow >= CUTIN_CHAIN && this.tall && this.layout.figure[i]) { this.fx[i].cutin = { text: line, n: chainNow, t }; m.bubble = null; } else say(line);
+      if (chainNow >= CUTIN_CHAIN && this.tall && this.layout.figure[i] && !this.layout.figure[i].small) { this.fx[i].cutin = { text: line, n: chainNow, t }; m.bubble = null; } else say(line);
     }
     m.chain = chainNow;
     const warn = b.warning ?? b.pending ?? 0;
@@ -852,18 +859,19 @@ export class Renderer {
   }
 
   // The name, after the title worn (in gold) when there is one; the rounds won under it.
-  drawName(ctx, i, x, y, match) {
+  // small: the narrow spot under the other field (item battle): the name alone, squeezed.
+  drawName(ctx, i, x, y, match, small = false) {
     const p = match.players[i];
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    const tag = p.title && !this.framed ? `[${p.title}] ` : '';
+    const tag = p.title && !this.framed && !small ? `[${p.title}] ` : '';
     ctx.font = `800 10px ${FONT}`;
     const tw = tag ? ctx.measureText(tag).width : 0;
     ctx.font = `800 11px ${FONT}`;
     const nw = ctx.measureText(p.name).width;
-    const k = Math.min(1, (tag ? 150 : 78) / (tw + nw)); // squeeze to fit the half
+    const k = Math.min(1, (tag ? 150 : small ? 52 : 78) / (tw + nw)); // squeeze to fit the half
     let left = x - ((tw + nw) * k) / 2;
     ctx.textAlign = 'left';
     if (tag) {
@@ -1010,7 +1018,7 @@ export class Renderer {
         ctx.globalAlpha = alpha;
         ctx.font = `900 ${size}px ${FONT}`;
         const sub = warn && n.item && it.active(i, n.item) ? `${it.left(i, n.item)}초` : '';
-        const w = Math.max(ctx.measureText(n.text).width + 24, warn ? fieldW * 0.9 : 0), h = size + (sub ? 30 : 14);
+        const w = Math.min(Math.max(ctx.measureText(n.text).width + 24, warn ? fieldW * 0.9 : 0), fieldW + 8), h = size + (sub ? 30 : 14);
         // Warnings sit in the middle of the field, items got near its top, items used just above the middle.
         const cy = warn ? fieldH * 0.45 : n.kind === 'get' ? fieldH * 0.12 + h / 2 : fieldH * 0.36;
         ctx.translate(at.x + fieldW / 2, at.y + cy - (n.kind === 'get' ? Math.min(age, 0.4) * 20 : 0));
@@ -1036,7 +1044,7 @@ export class Renderer {
         }
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(n.text, 0, sub ? -8 : 1, Math.max(40, fieldW + 30));
+        ctx.fillText(n.text, 0, sub ? -8 : 1, Math.max(40, w - 16));
         if (sub) {
           ctx.font = `800 ${Math.round(size * 0.7)}px ${FONT}`;
           ctx.fillText(sub, 0, 13);
