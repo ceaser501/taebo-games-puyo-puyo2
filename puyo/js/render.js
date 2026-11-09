@@ -7,6 +7,7 @@
 // smoothed). Text, warnings and effects are the same for both.
 import { W, H, ROT, GARBAGE, DEATH_X } from './board.js';
 import { place } from './ai.js';
+import { SHOT_TIME } from './items.js';
 
 export const SCREEN = { w: 640, h: 480 };
 export const CELL = 32;
@@ -1007,51 +1008,86 @@ export class Renderer {
         ctx.fillStyle = '#ffd84a';
         ctx.fillText(text, x + 6, y + h / 2 + 0.5);
       });
+      // The note naming an attack that just hit this field: small, at its top, gone in a second.
       for (const n of it.liveNotes()) {
         if (n.i !== i) continue;
-        const life = { used: 1.4, get: 1.6, warn: 2.4 }[n.kind] ?? 1.4;
-        const age = match.time - n.t, pop = age < 0.15 ? 0.6 + (age / 0.15) * 0.5 : age < 0.25 ? 1.1 - (age - 0.15) : 1;
-        const alpha = age > life - 0.3 ? Math.max(0, (life - age) / 0.3) : 1;
-        const warn = n.kind === 'warn';
-        const size = Math.round(Math.max(12, (warn ? 19 : 17) * at.s));
+        const age = match.time - n.t;
+        const alpha = age < 0.12 ? age / 0.12 : age > 0.9 ? Math.max(0, (1.2 - age) / 0.3) : 1;
+        const size = Math.round(Math.max(11, 14 * at.s));
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.font = `900 ${size}px ${FONT}`;
-        const sub = warn && n.item && it.active(i, n.item) ? `${it.left(i, n.item)}초` : '';
-        const w = Math.min(Math.max(ctx.measureText(n.text).width + 24, warn ? fieldW * 0.9 : 0), fieldW + 8), h = size + (sub ? 30 : 14);
-        // Warnings sit in the middle of the field, items got near its top, items used just above the middle.
-        const cy = warn ? fieldH * 0.45 : n.kind === 'get' ? fieldH * 0.12 + h / 2 : fieldH * 0.36;
-        ctx.translate(at.x + fieldW / 2, at.y + cy - (n.kind === 'get' ? Math.min(age, 0.4) * 20 : 0));
-        ctx.scale(pop, pop);
-        if (warn) {
-          ctx.fillStyle = 'rgba(200, 20, 60, 0.92)';
-          ctx.strokeStyle = '#ffb3c2';
-          ctx.lineWidth = 2;
-          ctx.shadowColor = 'rgba(255, 60, 100, 0.8)';
-          ctx.shadowBlur = 16;
-          roundRect(ctx, -w / 2, -h / 2, w, h, 12);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-          ctx.stroke();
-          ctx.fillStyle = '#fff';
-        } else {
-          const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-          if (n.kind === 'get') { g.addColorStop(0, '#fff3a8'); g.addColorStop(1, '#ffc93a'); } else { g.addColorStop(0, '#ffd95a'); g.addColorStop(1, '#ffae1f'); }
-          ctx.fillStyle = g;
-          roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
-          ctx.fill();
-          ctx.fillStyle = '#2a1600';
-        }
+        const w = Math.min(ctx.measureText(n.text).width + 18, fieldW), h = size + 10;
+        const x = at.x + fieldW / 2, y = at.y + (badges.length ? 26 : 6) * Math.max(0.8, at.s) + h / 2;
+        ctx.fillStyle = 'rgba(200, 20, 60, 0.9)';
+        roundRect(ctx, x - w / 2, y - h / 2, w, h, h / 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(n.text, 0, sub ? -8 : 1, Math.max(40, w - 16));
-        if (sub) {
-          ctx.font = `800 ${Math.round(size * 0.7)}px ${FONT}`;
-          ctx.fillText(sub, 0, 13);
-        }
+        ctx.fillText(n.text, x, y + 1, w - 10);
         ctx.restore();
       }
     });
+    this.drawShots(ctx, match);
+  }
+
+  // Attacks flying from one field to the other: the item's icon on an arc with a glowing tail,
+  // and a burst where it lands.
+  drawShots(ctx, match) {
+    const L = this.layout, it = match.items;
+    const centre = (i) => { const f = L.fields[i]; return f && [f.x + (FIELD_W * f.s) / 2, f.y + (FIELD_H * f.s) * 0.4]; };
+    for (const shot of it.liveShots()) {
+      const a = centre(shot.from), b = centre(shot.to);
+      if (!a || !b) continue;
+      const age = match.time - shot.t, k = Math.min(1, age / SHOT_TIME);
+      // Arc over the top: the control point above the middle.
+      const cx = (a[0] + b[0]) / 2, cy = Math.min(a[1], b[1]) - 110;
+      const at = (t) => [(1 - t) ** 2 * a[0] + 2 * (1 - t) * t * cx + t ** 2 * b[0], (1 - t) ** 2 * a[1] + 2 * (1 - t) * t * cy + t ** 2 * b[1]];
+      ctx.save();
+      if (k < 1) {
+        for (let j = 6; j >= 1; j--) {
+          const [tx, ty] = at(Math.max(0, k - j * 0.035));
+          ctx.globalAlpha = 0.5 * (1 - j / 7);
+          ctx.fillStyle = '#ffd84a';
+          ctx.beginPath();
+          ctx.arc(tx, ty, 9 - j, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        const [x, y] = at(k);
+        ctx.globalAlpha = 1;
+        // A glowing ball carrying the item's icon.
+        const g = ctx.createRadialGradient(x - 5, y - 6, 2, x, y, 22);
+        g.addColorStop(0, '#fffbe0'); g.addColorStop(0.55, '#ffcf3a'); g.addColorStop(1, 'rgba(255, 140, 30, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 4;
+        ctx.font = `900 24px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(shot.icon, x, y);
+      } else {
+        // The burst: a ring and sparks, over a third of a second.
+        const t = Math.min(1, (age - SHOT_TIME) / 0.35);
+        ctx.globalAlpha = 1 - t;
+        ctx.strokeStyle = '#ffd84a';
+        ctx.lineWidth = 4 * (1 - t) + 1;
+        ctx.beginPath();
+        ctx.arc(b[0], b[1], 10 + t * 46, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = '#fff3b0';
+        for (let j = 0; j < 8; j++) {
+          const ang = (j / 8) * Math.PI * 2, r = 12 + t * 52;
+          ctx.beginPath();
+          ctx.arc(b[0] + Math.cos(ang) * r, b[1] + Math.sin(ang) * r, 3 * (1 - t) + 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
   }
 
   // ---- practice ---------------------------------------------------------------------------

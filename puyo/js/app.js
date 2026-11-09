@@ -936,7 +936,11 @@ function renderItems() {
   $('items-count').textContent = full ? '칸이 꽉 찼어요' : `${p.gauge}/3`;
   for (const b of $('items').querySelectorAll('[data-slot]')) {
     const kind = p.slots[b.dataset.slot], item = ITEMS[kind];
+    // A newly filled slot drops its item in with a little bounce.
+    const arrived = item && b.dataset.kind !== kind && b.classList.contains('empty');
+    b.dataset.kind = kind ?? '';
     b.className = item ? (item.foe ? 'foe' : 'self') : 'empty';
+    if (arrived) { void b.offsetWidth; b.classList.add('arrive'); }
     b.innerHTML = item ? `<i>${item.icon}</i><span>${item.name}</span><small>${ITEM_HINTS[kind]}</small>` : '빈 칸';
     b.title = item ? ITEM_HINTS[kind] : '';
     b.setAttribute('aria-label', item ? `${item.name} 쓰기` : '빈 칸');

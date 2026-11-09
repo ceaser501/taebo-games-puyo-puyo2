@@ -16,8 +16,10 @@ const KINDS = Object.keys(ITEMS);
 const ATTACK = new Set(['double', 'fog', 'reverse', 'speed']);
 export const GAUGE = 3; // chain steps for one item
 export const SLOTS = 3;
-// Seconds a note stays over a field: an item used, an item got, an item hitting this field.
-const NOTE_TIME = { used: 1.4, get: 1.6, warn: 2.4 };
+// Seconds the short note naming an attack stays at the top of the field it hit, and the
+// seconds an attack takes to fly from one field to the other.
+const NOTE_TIME = 1.2;
+export const SHOT_TIME = 0.55;
 const SPEED_BOOST = 2.2;
 
 const height = (b) => {
@@ -41,7 +43,8 @@ export class Items {
   // A fresh start each round.
   reset() {
     this.players = [0, 1].map(() => ({ gauge: 0, slots: [], until: {}, double: false, doubleUsed: false, nextCpu: 0 }));
-    this.notes = []; // { i, text, t }: shown over field i
+    this.notes = []; // { i, text, t }: shown at the top of field i
+    this.shots = []; // { from, to, icon, t }: an attack flying from field `from` to field `to`
     this.onChange();
   }
 
@@ -54,7 +57,6 @@ export class Items {
       p.gauge -= GAUGE;
       const kind = this.pick(i);
       p.slots.push(kind);
-      this.note(i, `${ITEMS[kind].icon} ${ITEMS[kind].name} 획득!`, 'get');
       this.match.sound?.sfx('select', 0, 0.7);
     }
     if (p.slots.length >= SLOTS) p.gauge = Math.min(p.gauge, GAUGE);
@@ -78,11 +80,10 @@ export class Items {
     const item = ITEMS[kind];
     if (item.foe) {
       const foe = 1 - i;
-      this.note(foe, `${item.icon} ${item.name}!`);
+      this.shots.push({ from: i, to: foe, icon: item.icon, t: m.time });
       if (m.net) m.net.send({ t: 'item', k: m.seed, kind });
       else this.hit(foe, kind, true);
     } else {
-      this.note(i, `${item.icon} ${item.name}!`);
       if (kind === 'double') { p.double = true; p.doubleUsed = false; }
       if (kind === 'shield') m.boards[i].shield = true;
       if (kind === 'clear') m.boards[i].clearRow();
@@ -92,19 +93,17 @@ export class Items {
     return kind;
   }
 
-  // An item aimed at player i takes effect on their board (this phone plays it). `noted`: the
-  // note over their field is already up (one phone playing both).
-  hit(i, kind, noted = false) {
+  // An item aimed at player i takes effect on their board (this phone plays it), and the note
+  // naming it shows once the shot lands. `shot`: the shot is already flying (fired on this phone).
+  hit(i, kind, shot = false) {
     const item = ITEMS[kind];
     if (!item?.secs) return;
-    this.players[i].until[kind] = this.match.time + item.secs;
-    if (!noted) this.note(i, `${item.icon} ${this.match.players[1 - i].name}의 ${item.name}!`, 'warn', kind);
-    this.match.sound?.sfx('garbageSmall', 0, 0.7);
+    const m = this.match;
+    this.players[i].until[kind] = m.time + item.secs;
+    if (!shot) this.shots.push({ from: 1 - i, to: i, icon: item.icon, t: m.time });
+    this.notes.push({ i, text: `${item.icon} ${item.name}!`, t: m.time + SHOT_TIME });
+    m.sound?.sfx('garbageSmall', 0, 0.7);
   }
-
-  // kind: 'used' (an item used on this field), 'get' (an item got), 'warn' (one hitting me; `item`
-  // names it, for the seconds left).
-  note(i, text, kind = 'used', item = null) { this.notes.push({ i, text, kind, item, t: this.match.time }); }
 
   active(i, kind) { return (this.players[i].until[kind] ?? 0) > this.match.time; }
 
@@ -151,8 +150,13 @@ export class Items {
   }
 
   liveNotes() {
-    this.notes = this.notes.filter((n) => this.match.time - n.t < NOTE_TIME[n.kind]);
-    return this.notes;
+    this.notes = this.notes.filter((n) => this.match.time - n.t < NOTE_TIME);
+    return this.notes.filter((n) => n.t <= this.match.time);
+  }
+
+  liveShots() {
+    this.shots = this.shots.filter((s) => this.match.time - s.t < SHOT_TIME + 0.35);
+    return this.shots;
   }
 
   // Seconds left of an effect on player i.

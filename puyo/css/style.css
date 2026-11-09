@@ -1287,4 +1287,6 @@ button.link {
 #items.icons .items-slots button span { display: none; }
 #items.icons .items-slots button.empty { font-size: 0; }
 #items.icons .items-gauge span:first-child { display: none; }
-@media (prefers-reduced-motion: reduce) { .items-slots button { animation: none !important; } }
+.items-slots button.arrive i { animation: item-drop 0.45s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes item-drop { from { transform: translateY(-14px) scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .items-slots button, .items-slots button i { animation: none !important; } }
